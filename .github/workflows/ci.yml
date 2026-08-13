@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel, windows-2022]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun ci
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - name: Audit shipped dependencies
+        if: ${{ runner.os == 'Linux' }}
+        # Build-only devDependencies with no patched release yet; drop each flag when one ships.
+        run: >-
+          bun audit --audit-level=high
+          --ignore=GHSA-w3rx-r6r6-pgpr
+          --ignore=GHSA-5p2g-fcmc-qvqq
+          --ignore=GHSA-jmr9-qjv8-65gv
+
+  package-windows:
+    name: Package Windows x64
+    needs: desktop
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun ci
+      - run: bun run generate:desktop-icons
+      - run: bun run desktop:package -- --platform=win32 --arch=x64
+      - name: Verify packaged resources
+        shell: pwsh
+        # Runs here so `bunx` resolves the local @electron/asar instead of fetching from npm.
+        working-directory: apps/desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $resources = Get-ChildItem "out\UsageAtlas-win32-x64\resources" -File
+          if ($resources.Count -ne 1 -or $resources.Name -ne "app.asar") {
+            throw "Unexpected packaged resources: $($resources.Name -join ', ')"
+          }
+          $entries = & bunx asar list $resources.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "asar list failed with exit code $LASTEXITCODE"
+          }
+          $normalized = $entries | ForEach-Object { $_ -replace '\\', '/' }
+          if ($normalized -notcontains "/.vite/renderer/main_window/index.html") {
+            throw "Packaged renderer entry is missing from app.asar. Found $($entries.Count) entries."
+          }

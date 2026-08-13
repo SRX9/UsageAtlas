@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-17T12:00:00Z",
+  "staleAfterSeconds": 180,
+  "host": {
+    "engine": "fixture",
+    "version": "2.0.0"
+  },
+  "providers": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "enabled": true,
+      "source": "fixture",
+      "windows": [
+        {
+          "kind": "session",
+          "label": "5-hour",
+          "usedPercent": 25,
+          "remainingPercent": 75,
+          "resetAt": "2026-07-17T15:00:00Z"
+        },
+        {
+          "kind": "weekly",
+          "label": "Weekly",
+          "usedPercent": 40,
+          "remainingPercent": 60,
+          "resetAt": "2026-07-20T00:00:00Z"
+        }
+      ],
+      "identity": { "plan": "Pro" },
+      "credits": { "remaining": 42.5, "unit": "credits" },
+      "analytics": {
+        "status": "available",
+        "source": "local_sessions",
+        "historyDays": 90,
+        "coverageStart": "2026-04-19",
+        "coverageEnd": "2026-07-17",
+        "updatedAt": "2026-07-17T12:00:00Z",
+        "filesScanned": 2,
+        "recordsProcessed": 3,
+        "totals": {
+          "inputTokens": 1100,
+          "cachedInputTokens": 400,
+          "cacheCreationInputTokens": 0,
+          "outputTokens": 300,
+          "totalTokens": 1800,
+          "requests": 3,
+          "estimatedCostUSD": 0.0056,
+          "unpricedTokens": 0
+        },
+        "today": {
+          "inputTokens": 400,
+          "cachedInputTokens": 200,
+          "cacheCreationInputTokens": 0,
+          "outputTokens": 120,
+          "totalTokens": 720,
+          "requests": 1,
+          "estimatedCostUSD": 0.0022,
+          "unpricedTokens": 0
+        },
+        "daily": [
+          {
+            "date": "2026-07-16",
+            "inputTokens": 700,
+            "cachedInputTokens": 200,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 180,
+            "totalTokens": 1080,
+            "requests": 2,
+            "estimatedCostUSD": 0.0034,
+            "unpricedTokens": 0
+          },
+          {
+            "date": "2026-07-17",
+            "inputTokens": 400,
+            "cachedInputTokens": 200,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 120,
+            "totalTokens": 720,
+            "requests": 1,
+            "estimatedCostUSD": 0.0022,
+            "unpricedTokens": 0
+          }
+        ],
+        "hourly": [
+          {
+            "date": "2026-07-16",
+            "hour": 9,
+            "inputTokens": 400,
+            "cachedInputTokens": 100,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 80,
+            "totalTokens": 580,
+            "requests": 1,
+            "estimatedCostUSD": 0.0018,
+            "unpricedTokens": 0
+          },
+          {
+            "date": "2026-07-16",
+            "hour": 15,
+            "inputTokens": 300,
+            "cachedInputTokens": 100,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 100,
+            "totalTokens": 500,
+            "requests": 1,
+            "estimatedCostUSD": 0.0016,
+            "unpricedTokens": 0
+          },
+          {
+            "date": "2026-07-17",
+            "hour": 11,
+            "inputTokens": 400,
+            "cachedInputTokens": 200,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 120,
+            "totalTokens": 720,
+            "requests": 1,
+            "estimatedCostUSD": 0.0022,
+            "unpricedTokens": 0
+          }
+        ],
+        "models": [
+          {
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "inputTokens": 1100,
+            "cachedInputTokens": 400,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 300,
+            "totalTokens": 1800,
+            "requests": 3,
+            "estimatedCostUSD": 0.0056,
+            "unpricedTokens": 0
+          }
+        ],
+        "projects": [
+          {
+            "id": "project-a",
+            "label": "project-a",
+            "path": "D:\\work\\project-a",
+            "modelIDs": ["gpt-5.6-sol"],
+            "inputTokens": 1100,
+            "cachedInputTokens": 400,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 300,
+            "totalTokens": 1800,
+            "requests": 3,
+            "estimatedCostUSD": 0.0056,
+            "unpricedTokens": 0
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-a",
+            "label": "session-a",
+            "lastActivity": "2026-07-17T11:55:00Z",
+            "project": "project-a",
+            "modelIDs": ["gpt-5.6-sol"],
+            "inputTokens": 1100,
+            "cachedInputTokens": 400,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 300,
+            "totalTokens": 1800,
+            "requests": 3,
+            "estimatedCostUSD": 0.0056,
+            "unpricedTokens": 0
+          }
+        ],
+        "serviceTiers": [
+          {
+            "id": "standard",
+            "label": "Standard",
+            "inputTokens": 1100,
+            "cachedInputTokens": 400,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 300,
+            "totalTokens": 1800,
+            "requests": 3,
+            "estimatedCostUSD": 0.0056,
+            "unpricedTokens": 0
+          }
+        ],
+        "error": null
+      },
+      "error": null,
+      "updatedAt": "2026-07-17T12:00:00Z"
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "enabled": true,
+      "source": "fixture",
+      "windows": [
+        {
+          "kind": "session",
+          "label": "5-hour",
+          "usedPercent": 68,
+          "remainingPercent": 32,
+          "resetAt": "2026-07-17T14:30:00Z"
+        },
+        {
+          "kind": "weekly",
+          "label": "Weekly",
+          "usedPercent": 54,
+          "remainingPercent": 46,
+          "resetAt": "2026-07-21T00:00:00Z"
+        }
+      ],
+      "identity": { "plan": "Max" },
+      "credits": null,
+      "analytics": null,
+      "error": null,
+      "updatedAt": "2026-07-17T11:59:00Z"
+    }
+  ]
+}

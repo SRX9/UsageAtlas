@@ -1,0 +1,5 @@
+[install]
+# Give each workspace package local dependency links. Electron Forge resolves
+# Electron from apps/desktop/node_modules and does not recognize bun.lock when
+# searching ancestor workspaces.
+linker = "isolated"

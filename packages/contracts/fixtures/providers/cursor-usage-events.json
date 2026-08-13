@@ -1,0 +1,56 @@
+{
+  "totalUsageEventsCount": 3,
+  "pagination": {
+    "numPages": 1,
+    "currentPage": 1,
+    "pageSize": 100,
+    "hasNextPage": false,
+    "hasPreviousPage": false
+  },
+  "usageEventsDisplay": [
+    {
+      "timestamp": "1699995600000",
+      "model": "claude-4.6-sonnet-medium-thinking",
+      "kind": "USAGE_EVENT_KIND_USAGE_BASED",
+      "maxMode": true,
+      "isTokenBasedCall": true,
+      "tokenUsage": {
+        "inputTokens": 100,
+        "outputTokens": 50,
+        "cacheWriteTokens": 10,
+        "cacheReadTokens": 20,
+        "totalCents": 2
+      },
+      "cursorTokenFee": 0.1,
+      "chargedCents": 2.1,
+      "isChargeable": true,
+      "isHeadless": false
+    },
+    {
+      "timestamp": "1699992000000",
+      "model": "composer-2",
+      "kind": "USAGE_EVENT_KIND_USAGE_BASED",
+      "maxMode": false,
+      "isTokenBasedCall": true,
+      "tokenUsage": {
+        "inputTokens": 200,
+        "outputTokens": 80,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 50,
+        "totalCents": 4
+      },
+      "chargedCents": 4,
+      "isChargeable": true,
+      "isHeadless": true
+    },
+    {
+      "timestamp": "1699905600000",
+      "model": "auto",
+      "kind": "USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS",
+      "maxMode": false,
+      "isTokenBasedCall": false,
+      "isChargeable": false,
+      "isHeadless": false
+    }
+  ]
+}

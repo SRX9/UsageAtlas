@@ -1,0 +1,60 @@
+node_modules/
+.turbo/
+.vite/
+dist/
+out/
+coverage/
+tmp/
+*.tsbuildinfo
+
+# Environment and signing material
+.env
+.env.*
+!.env.example
+*.local
+*.pfx
+*.p12
+*.pem
+*.key
+*.mobileprovision
+
+# Provider credentials and local usage data. UsageAtlas reads these from the
+# developer's real home directory; none of them belong in a commit.
+.credentials.json
+auth.json
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+
+# Build artifacts and installers
+*.zip
+*.dmg
+*.pkg
+*.exe
+*.msi
+*.deb
+*.rpm
+*.AppImage
+*.asar
+*.tar.gz
+*.tgz
+*.log
+
+# Editor and OS
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Coding-agent scratch
+.agents/
+.codex/
+.claude/settings.local.json
+
+__pycache__/
+*.py[cod]

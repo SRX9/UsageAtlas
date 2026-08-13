@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usageatlas.com/schemas/dashboard-v2.schema.json",
+  "title": "UsageAtlas dashboard snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "staleAfterSeconds", "host", "providers"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "staleAfterSeconds": { "type": "integer", "minimum": 0 },
+    "host": { "type": "object" },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/provider" }
+    }
+  },
+  "$defs": {
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "label", "usedPercent", "remainingPercent"],
+      "properties": {
+        "kind": { "type": "string" },
+        "label": { "type": "string" },
+        "usedPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "remainingPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "resetAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "metricsFields": {
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "cachedInputTokens",
+        "cacheCreationInputTokens",
+        "outputTokens",
+        "totalTokens",
+        "requests",
+        "estimatedCostUSD",
+        "unpricedTokens"
+      ],
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "cachedInputTokens": { "type": "integer", "minimum": 0 },
+        "cacheCreationInputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 },
+        "requests": { "type": "integer", "minimum": 0 },
+        "estimatedCostUSD": { "type": ["number", "null"], "minimum": 0 },
+        "unpricedTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/metricsFields" }],
+      "unevaluatedProperties": false
+    },
+    "daily": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["date"],
+          "properties": { "date": { "type": "string", "format": "date" } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "hourly": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["date", "hour"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "hour": { "type": "integer", "minimum": 0, "maximum": 23 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "breakdown": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["id", "label"],
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "project": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["id", "label", "path", "modelIDs"],
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" },
+            "path": { "type": ["string", "null"] },
+            "modelIDs": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "session": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["id", "label", "lastActivity", "project", "modelIDs"],
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" },
+            "lastActivity": { "type": "string", "format": "date-time" },
+            "project": { "type": ["string", "null"] },
+            "modelIDs": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "analytics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "source",
+        "historyDays",
+        "coverageStart",
+        "coverageEnd",
+        "updatedAt",
+        "filesScanned",
+        "recordsProcessed",
+        "totals",
+        "today",
+        "daily",
+        "models",
+        "projects",
+        "sessions",
+        "serviceTiers",
+        "error"
+      ],
+      "properties": {
+        "status": { "enum": ["available", "no_data", "partial", "unavailable"] },
+        "source": { "enum": ["local_sessions", "remote_usage"] },
+        "historyDays": { "type": "integer", "minimum": 1, "maximum": 366 },
+        "coverageStart": { "type": "string", "format": "date" },
+        "coverageEnd": { "type": "string", "format": "date" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "filesScanned": { "type": "integer", "minimum": 0 },
+        "recordsProcessed": { "type": "integer", "minimum": 0 },
+        "totals": { "$ref": "#/$defs/totals" },
+        "today": { "$ref": "#/$defs/totals" },
+        "daily": { "type": "array", "items": { "$ref": "#/$defs/daily" }, "maxItems": 366 },
+        "hourly": { "type": "array", "items": { "$ref": "#/$defs/hourly" }, "maxItems": 8784 },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/breakdown" }, "maxItems": 200 },
+        "projects": { "type": "array", "items": { "$ref": "#/$defs/project" }, "maxItems": 200 },
+        "sessions": { "type": "array", "items": { "$ref": "#/$defs/session" }, "maxItems": 250 },
+        "serviceTiers": { "type": "array", "items": { "$ref": "#/$defs/breakdown" }, "maxItems": 10 },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "enabled", "source", "windows", "analytics"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "source": { "type": "string" },
+        "windows": { "type": "array", "items": { "$ref": "#/$defs/window" } },
+        "identity": { "type": ["object", "null"] },
+        "credits": { "type": ["object", "null"] },
+        "analytics": { "oneOf": [{ "$ref": "#/$defs/analytics" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@usageatlas/contracts",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./dashboard-v2.schema.json": "./dashboard-v2.schema.json",
+    "./fixtures/dashboard-v2.json": "./fixtures/dashboard-v2.json",
+    "./fixtures/analytics/codex-session.json": "./fixtures/analytics/codex-session.json",
+    "./fixtures/analytics/claude-session.json": "./fixtures/analytics/claude-session.json",
+    "./fixtures/providers/claude-oauth-usage.json": "./fixtures/providers/claude-oauth-usage.json",
+    "./fixtures/providers/codex-oauth-usage.json": "./fixtures/providers/codex-oauth-usage.json",
+    "./fixtures/providers/cursor-usage-summary.json": "./fixtures/providers/cursor-usage-summary.json",
+    "./fixtures/providers/cursor-usage-events.json": "./fixtures/providers/cursor-usage-events.json"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

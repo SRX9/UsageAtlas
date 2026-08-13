@@ -1,0 +1,405 @@
+name: Release desktop
+
+# Pushing a bumped apps/desktop/package.json version to main publishes it; the tag is created here.
+
+on:
+  push:
+    branches: [main]
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built artifacts as a GitHub release
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Repository variables, not secrets: a PostHog project token is a public client key.
+  POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
+  POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+
+jobs:
+  gate:
+    name: Decide what this run publishes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      release: ${{ steps.decide.outputs.release }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - name: Compare the package version against published releases
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_REQUESTED: ${{ inputs.publish == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::apps/desktop/package.json has an unusable version: ${version}"
+            exit 1
+          fi
+          tag="desktop-v${version}"
+          build=false
+          release=false
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            build=true
+            release="$PUBLISH_REQUESTED"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/package.json (${version}). Expected ${tag}."
+              exit 1
+            fi
+            build=true
+            release=true
+          elif gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "${tag} is already published. Bump apps/desktop/package.json to release a new build."
+          else
+            build=true
+            release=true
+          fi
+
+          {
+            echo "build=$build"
+            echo "release=$release"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "### UsageAtlas ${version}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- build: \`${build}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- publish: \`${release}\` (\`${tag}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+  quality:
+    name: Quality (${{ matrix.os }})
+    needs: gate
+    if: ${{ needs.gate.outputs.build == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel, windows-2022]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun ci
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - name: Audit shipped dependencies
+        if: ${{ runner.os == 'Linux' }}
+        # Build-only devDependencies with no patched release yet; drop each flag when one ships.
+        run: >-
+          bun audit --audit-level=high
+          --ignore=GHSA-w3rx-r6r6-pgpr
+          --ignore=GHSA-5p2g-fcmc-qvqq
+          --ignore=GHSA-jmr9-qjv8-65gv
+
+  windows:
+    name: Windows x64
+    needs: [gate, quality]
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      RELEASE_REQUIRED: ${{ needs.gate.outputs.release }}
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun ci
+      - run: bun run generate:desktop-icons
+      - name: Prepare signing
+        shell: pwsh
+        # An unsigned Windows build is allowed and announced; set WINDOWS_CERTIFICATE_BASE64 to sign.
+        run: |
+          if ($env:RELEASE_REQUIRED -eq "true" -and [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            Write-Output "::warning::Publishing an unsigned Windows build. Users will see a SmartScreen warning on install. Add WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD to sign."
+            "Windows x64 is **unsigned** in this release." | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            $certificatePath = Join-Path $env:RUNNER_TEMP "usageatlas-signing.pfx"
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+      - run: bun run desktop:make -- --platform=win32 --arch=x64
+      - name: Packaged smoke test
+        shell: pwsh
+        run: |
+          $env:USAGEATLAS_SMOKE_TEST = "1"
+          & "apps\desktop\out\UsageAtlas-win32-x64\UsageAtlas.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify signatures
+        if: ${{ env.WINDOWS_CERTIFICATE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $files = @("apps\desktop\out\UsageAtlas-win32-x64\UsageAtlas.exe") +
+            @(Get-ChildItem "apps\desktop\out\make" -Recurse -Filter "*.exe" | ForEach-Object FullName)
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne "Valid") { throw "Invalid signature for $file: $($signature.Status)" }
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-win32-x64
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: [gate, quality]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-15
+            arch: arm64
+    env:
+      RELEASE_REQUIRED: ${{ needs.gate.outputs.release }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun ci
+      - name: Generate macOS icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_png="apps/desktop/resources/icons/usageatlas.png"
+          iconset="$RUNNER_TEMP/usageatlas.iconset"
+          mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" "$source_png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            double=$((size * 2))
+            sips -z "$double" "$double" "$source_png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o apps/desktop/resources/icons/usageatlas.icns
+      - name: Prepare signing and notarization
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_REQUIRED" == "true" ]] && {
+            [[ -z "$APPLE_CERTIFICATE_BASE64" ]] || [[ -z "$APPLE_SIGNING_IDENTITY" ]] ||
+            [[ -z "$APPLE_API_KEY_BASE64" ]] || [[ -z "$APPLE_API_KEY_ID" ]] || [[ -z "$APPLE_API_ISSUER" ]];
+          }; then
+            echo "Apple signing and notarization credentials are required for a published release." >&2
+            exit 1
+          fi
+          if [[ -n "$APPLE_CERTIFICATE_BASE64" ]]; then
+            certificate_path="$RUNNER_TEMP/usageatlas-signing.p12"
+            keychain_path="$RUNNER_TEMP/usageatlas-signing.keychain-db"
+            keychain_password="usageatlas-ci-$GITHUB_RUN_ID"
+            printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$certificate_path"
+            certificate_bytes="$(wc -c < "$certificate_path" | tr -d ' ')"
+            if ! openssl pkcs12 -in "$certificate_path" -passin env:APPLE_CERTIFICATE_PASSWORD -noout >/dev/null 2>&1; then
+              echo "::error::The Apple certificate secret is not a valid PKCS#12 bundle for the supplied password (decoded ${certificate_bytes} bytes). Replace APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD from the same local credential file."
+              exit 1
+            fi
+            security create-keychain -p "$keychain_password" "$keychain_path"
+            security set-keychain-settings -lut 21600 "$keychain_path"
+            security unlock-keychain -p "$keychain_password" "$keychain_path"
+            security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+            security list-keychains -d user -s "$keychain_path"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          fi
+          if [[ -n "$APPLE_API_KEY_BASE64" ]]; then
+            api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$api_key_path"
+            echo "APPLE_API_KEY=$api_key_path" >> "$GITHUB_ENV"
+          fi
+      - run: bun run desktop:make -- --platform=darwin --arch=${{ matrix.arch }}
+      - name: Packaged smoke test
+        shell: bash
+        run: USAGEATLAS_SMOKE_TEST=1 "apps/desktop/out/UsageAtlas-darwin-${{ matrix.arch }}/UsageAtlas.app/Contents/MacOS/UsageAtlas"
+      - name: Verify signature and notarization
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' }}
+        shell: bash
+        run: |
+          app_path="apps/desktop/out/UsageAtlas-darwin-${{ matrix.arch }}/UsageAtlas.app"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=2 "$app_path"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-darwin-${{ matrix.arch }}
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: [gate, quality]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rpm squashfs-tools xvfb fuse3
+      - run: bun ci
+      - run: bun run desktop:make -- --platform=linux --arch=${{ matrix.arch }}
+      - name: Packaged smoke test
+        shell: bash
+        # Restores what dpkg and rpm set on install; extracting as the runner user drops it.
+        run: |
+          set -euo pipefail
+          app_dir="apps/desktop/out/UsageAtlas-linux-${{ matrix.arch }}"
+          sudo chown root:root "$app_dir/chrome-sandbox"
+          sudo chmod 4755 "$app_dir/chrome-sandbox"
+          xvfb-run -a env USAGEATLAS_SMOKE_TEST=1 "$app_dir/UsageAtlas"
+      - name: AppImage smoke test
+        shell: bash
+        # The AppImage picks its sandbox at runtime, so run the artifact itself, not the tree above.
+        run: |
+          set -euo pipefail
+          appimage="$(find apps/desktop/out/make -name '*.AppImage' -print -quit)"
+          if [[ -z "$appimage" ]]; then
+            echo "::error::No AppImage was produced for ${{ matrix.arch }}"
+            exit 1
+          fi
+          xvfb-run -a env USAGEATLAS_SMOKE_TEST=1 "$appimage"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-linux-${{ matrix.arch }}
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+
+  publish:
+    name: Publish desktop release
+    needs: [gate, windows, macos, linux]
+    if: ${{ needs.gate.outputs.release == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.gate.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: desktop-*
+          path: release-artifacts
+          merge-multiple: true
+      - name: Verify the artifact set the update mirror expects
+        shell: bash
+        # usageatlas-cloud cannot map a release with a missing target; catch it before it is public.
+        run: |
+          set -euo pipefail
+          failed=0
+          matches() { find release-artifacts -type f "$@" | wc -l | tr -d ' '; }
+          expect() {
+            local label="$1" expected="$2" actual="$3"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::${label}: expected ${expected} artifact(s), found ${actual}"
+              failed=1
+            fi
+          }
+          expect "Windows installer" 1 "$(matches -ipath '*squirrel*' -iname '*.exe')"
+          expect "Windows RELEASES feed" 1 "$(matches -name RELEASES)"
+          if [[ "$(matches -ipath '*squirrel*' -iname '*.nupkg')" -lt 1 ]]; then
+            echo "::error::Windows update feed has no .nupkg artifact"
+            failed=1
+          fi
+          for arch in x64 arm64; do
+            expect "macOS ${arch} disk image" 1 "$(matches -iname '*.dmg' -ipath "*${arch}*")"
+            expect "macOS ${arch} update ZIP" 1 "$(matches -iname '*.zip' -ipath '*darwin*' -ipath "*${arch}*")"
+            expect "Linux ${arch} AppImage" 1 "$(matches -iname '*.AppImage' -ipath "*${arch}*")"
+          done
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Artifacts produced by this run:" >&2
+            find release-artifacts -type f | sort >&2
+            exit 1
+          fi
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          checksum_file="$RUNNER_TEMP/SHA256SUMS"
+          find release-artifacts -type f -print0 | sort -z | xargs -0 sha256sum > "$checksum_file"
+          mv "$checksum_file" release-artifacts/SHA256SUMS
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        # --target creates the tag at the released commit; ignored when the tag already exists.
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "UsageAtlas $RELEASE_VERSION" \
+              --generate-notes
+          fi
+          find release-artifacts -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+      - name: Hand the release to the download and update mirror
+        env:
+          # Cross-repo dispatch needs a fine-grained PAT for the mirror with Contents: read/write.
+          DISPATCH_TOKEN: ${{ secrets.CLOUD_DISPATCH_TOKEN }}
+          MIRROR_REPO: SRX9/usageatlas-cloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DISPATCH_TOKEN:-}" ]]; then
+            echo "::warning::CLOUD_DISPATCH_TOKEN is not set. ${RELEASE_TAG} is published on GitHub but usageatlas.com will keep serving the previous build until you run 'Publish release assets to R2' in ${MIRROR_REPO} with tag ${RELEASE_TAG}."
+            exit 0
+          fi
+          GH_TOKEN="$DISPATCH_TOKEN" gh api "repos/${MIRROR_REPO}/dispatches" \
+            --method POST \
+            -f event_type=desktop-released \
+            -f "client_payload[tag]=${RELEASE_TAG}"
+          echo "Requested the R2 mirror for ${RELEASE_TAG}."
