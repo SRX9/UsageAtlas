@@ -367,11 +367,32 @@ jobs:
           fi
       - name: Generate checksums
         shell: bash
+        # Names here must be the ones GitHub publishes, not the build tree's:
+        # assets are uploaded flat, and every character outside [A-Za-z0-9._-]
+        # is rewritten to "." on the way in, so the Squirrel installer built as
+        # "UsageAtlas-1.2.3 Setup.exe" downloads as "UsageAtlas-1.2.3.Setup.exe".
+        # Recording the built path instead ships a SHA256SUMS naming files that
+        # nobody can download, which breaks `sha256sum -c` for users and the
+        # mirror's verification alike.
         run: |
           set -euo pipefail
+          published_name() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '.'; }
           checksum_file="$RUNNER_TEMP/SHA256SUMS"
-          find release-artifacts -type f -print0 | sort -z | xargs -0 sha256sum > "$checksum_file"
+          : > "$checksum_file"
+          declare -A source_of=()
+          while IFS= read -r -d '' file; do
+            name="$(published_name "$(basename "$file")")"
+            # A collision would also silently clobber one of the two on upload.
+            if [[ -n "${source_of[$name]:-}" ]]; then
+              echo "::error::${file} and ${source_of[$name]} are both published as ${name}."
+              exit 1
+            fi
+            source_of[$name]="$file"
+            printf '%s  %s\n' "$(sha256sum "$file" | cut -d' ' -f1)" "$name" >> "$checksum_file"
+          done < <(find release-artifacts -type f -print0 | sort -z)
+          sort -k2 -o "$checksum_file" "$checksum_file"
           mv "$checksum_file" release-artifacts/SHA256SUMS
+          echo "Recorded $(wc -l < release-artifacts/SHA256SUMS | tr -d ' ') published asset checksums."
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
