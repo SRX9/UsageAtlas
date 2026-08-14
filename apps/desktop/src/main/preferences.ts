@@ -2,6 +2,7 @@ import { app } from "electron";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { sanitizeLimitOrder, sanitizeTrayLimits } from "../shared/capacity-model";
 import type { DesktopPreferences } from "../shared/desktop-api";
 import { cloneUsageAlertPreferences, sanitizeUsageAlertPreferences } from "../shared/usage-alerts";
 
@@ -16,7 +17,8 @@ function defaultPreferences(): StoredPreferences {
     launchAtLogin: false,
     minimizeToTray: true,
     providerEnabled: {},
-    limitProviderOrder: [],
+    limitOrder: [],
+    trayLimits: {},
     usageAlerts: {},
     anonymousAnalytics: true,
     analyticsInstallationId: randomUUID()
@@ -41,7 +43,8 @@ export class PreferenceStore {
       minimizeToTray: this.values.minimizeToTray,
       anonymousAnalytics: this.values.anonymousAnalytics,
       providerEnabled: { ...this.values.providerEnabled },
-      limitProviderOrder: [...this.values.limitProviderOrder],
+      limitOrder: [...this.values.limitOrder],
+      trayLimits: { ...this.values.trayLimits },
       usageAlerts: cloneUsageAlertPreferences(this.values.usageAlerts)
     };
   }
@@ -66,8 +69,11 @@ export class PreferenceStore {
         ([providerID, enabled]) => /^[a-z0-9-]{1,64}$/u.test(providerID) && typeof enabled === "boolean"
       ));
     }
-    if (Array.isArray(patch.limitProviderOrder)) {
-      next.limitProviderOrder = sanitizeProviderOrder(patch.limitProviderOrder);
+    if (Array.isArray(patch.limitOrder)) {
+      next.limitOrder = sanitizeLimitOrder(patch.limitOrder);
+    }
+    if (patch.trayLimits && typeof patch.trayLimits === "object") {
+      next.trayLimits = sanitizeTrayLimits(patch.trayLimits);
     }
     if (patch.usageAlerts && typeof patch.usageAlerts === "object") {
       next.usageAlerts = sanitizeUsageAlertPreferences(patch.usageAlerts);
@@ -104,7 +110,8 @@ export class PreferenceStore {
           && /^[0-9a-f-]{36}$/iu.test(parsed.analyticsInstallationId)
           ? parsed.analyticsInstallationId : defaults.analyticsInstallationId,
         providerEnabled,
-        limitProviderOrder: sanitizeProviderOrder(parsed.limitProviderOrder),
+        limitOrder: sanitizeLimitOrder(parsed.limitOrder),
+        trayLimits: sanitizeTrayLimits(parsed.trayLimits),
         usageAlerts: sanitizeUsageAlertPreferences(parsed.usageAlerts)
       };
     } catch {
@@ -121,10 +128,4 @@ export class PreferenceStore {
     }
     app.setLoginItemSettings({ openAtLogin });
   }
-}
-function sanitizeProviderOrder(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((providerID): providerID is string => (
-    typeof providerID === "string" && /^[a-z0-9-]{1,64}$/u.test(providerID)
-  )))].slice(0, 64);
 }

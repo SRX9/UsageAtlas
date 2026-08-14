@@ -1,12 +1,12 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
-import { previewLimitEntries } from "../shared/capacity-model";
+import { trayLimitEntries, type TrayLimitPreferences } from "../shared/capacity-model";
 
 export function trayLimitLabels(
   snapshot: DashboardSnapshot,
-  providerOrder: string[],
-  maximum = 4
+  limitOrder: string[],
+  trayLimits: TrayLimitPreferences = {}
 ): string[] {
-  return previewLimitEntries(snapshot.providers, providerOrder, maximum).map(({ provider, window }) => (
+  return trayLimitEntries(snapshot.providers, limitOrder, trayLimits).map(({ provider, window }) => (
     `${provider.name} - ${window.label}: ${Math.round(clampPercent(window.remainingPercent))}% available`
   ));
 }

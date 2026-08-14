@@ -32,9 +32,6 @@ export interface TopProject {
   estimatedCostUSD: number | null;
 }
 
-interface MutableTopProject extends TopProject {
-  costComplete: boolean;
-}
 
 export function buildDashboardSummary(snapshot: DashboardSnapshot): DashboardSummary {
   const healthy = snapshot.providers.filter((provider) => provider.enabled && !provider.error);
@@ -61,9 +58,7 @@ export function buildDashboardSummary(snapshot: DashboardSnapshot): DashboardSum
     todayTokens: analytics.reduce((total, item) => total + item.today.totalTokens, 0),
     totalTokens: analytics.reduce((total, item) => total + item.totals.totalTokens, 0),
     totalRequests: analytics.reduce((total, item) => total + item.totals.requests, 0),
-    estimatedCostUSD: analytics.some((item) => item.status === "partial")
-      ? null
-      : analyticsTotals.estimatedCostUSD
+    estimatedCostUSD: analyticsTotals.estimatedCostUSD
   };
 }
 
@@ -107,7 +102,7 @@ export function buildUsageCalendar(snapshot: DashboardSnapshot, days = 365): Usa
 }
 
 export function buildTopProjects(snapshot: DashboardSnapshot, limit = 5): TopProject[] {
-  const projects = new Map<string, MutableTopProject>();
+  const projects = new Map<string, TopProject>();
   for (const provider of snapshot.providers) {
     if (!provider.enabled || provider.analytics?.source !== "local_sessions") continue;
     for (const project of provider.analytics.projects) {
@@ -118,18 +113,16 @@ export function buildTopProjects(snapshot: DashboardSnapshot, limit = 5): TopPro
         providerNames: [],
         totalTokens: 0,
         requests: 0,
-        estimatedCostUSD: null,
-        costComplete: true
+        estimatedCostUSD: null
       };
       if (!current.providerNames.includes(provider.name)) current.providerNames.push(provider.name);
       current.totalTokens += project.totalTokens;
       current.requests += project.requests;
-      if (
-        provider.analytics.status === "partial"
-        || (project.totalTokens > 0 && project.estimatedCostUSD === null)
-      ) {
-        current.costComplete = false;
-      } else if (project.estimatedCostUSD !== null) {
+      if (provider.analytics.status === "partial") {
+        projects.set(id, current);
+        continue;
+      }
+      if (project.estimatedCostUSD !== null) {
         current.estimatedCostUSD = (current.estimatedCostUSD ?? 0) + project.estimatedCostUSD;
       }
       projects.set(id, current);
@@ -138,11 +131,7 @@ export function buildTopProjects(snapshot: DashboardSnapshot, limit = 5): TopPro
 
   return [...projects.values()]
     .sort((left, right) => right.totalTokens - left.totalTokens)
-    .slice(0, Math.max(0, limit))
-    .map(({ costComplete, ...project }) => ({
-      ...project,
-      estimatedCostUSD: costComplete ? project.estimatedCostUSD : null
-    }));
+    .slice(0, Math.max(0, limit));
 }
 
 export function usageDaysForRange(daily: UsageDailyMetric[], days: number, endDay: string): UsageDailyMetric[] {
@@ -155,9 +144,6 @@ export function usageDaysForRange(daily: UsageDailyMetric[], days: number, endDa
 export function sumUsageTotals(entries: UsageTotals[]): UsageTotals {
   const costs = entries.map((entry) => entry.estimatedCostUSD).filter((value): value is number => value !== null);
   const unpricedTokens = entries.reduce((total, entry) => total + entry.unpricedTokens, 0);
-  const hasMissingCost = entries.some(
-    (entry) => entry.totalTokens > 0 && entry.estimatedCostUSD === null
-  );
   return {
     inputTokens: entries.reduce((total, entry) => total + entry.inputTokens, 0),
     cachedInputTokens: entries.reduce((total, entry) => total + entry.cachedInputTokens, 0),
@@ -165,9 +151,7 @@ export function sumUsageTotals(entries: UsageTotals[]): UsageTotals {
     outputTokens: entries.reduce((total, entry) => total + entry.outputTokens, 0),
     totalTokens: entries.reduce((total, entry) => total + entry.totalTokens, 0),
     requests: entries.reduce((total, entry) => total + entry.requests, 0),
-    estimatedCostUSD: unpricedTokens === 0 && !hasMissingCost && costs.length
-      ? costs.reduce((total, value) => total + value, 0)
-      : null,
+    estimatedCostUSD: costs.length ? costs.reduce((total, value) => total + value, 0) : null,
     unpricedTokens
   };
 }

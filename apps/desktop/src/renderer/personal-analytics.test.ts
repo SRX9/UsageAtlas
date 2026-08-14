@@ -65,11 +65,14 @@ describe("personal analytics", () => {
     })).toEqual({ freshInput: 600, cacheRead: 300, cacheCreated: 100, output: 200 });
   });
 
-  it("hides period cost and reports the source when analytics are partial", () => {
+  it("hides period cost when that provider's scan suppressed cost", () => {
     const partial = structuredClone(snapshot);
     const analytics = partial.providers[0]?.analytics;
     if (!analytics) throw new Error("Analytics fixture is missing.");
     analytics.status = "partial";
+    analytics.totals.estimatedCostUSD = null;
+    analytics.today.estimatedCostUSD = null;
+    for (const day of analytics.daily) day.estimatedCostUSD = null;
     analytics.error = {
       code: "analytics_partial",
       message: "Some history was skipped.",
@@ -84,4 +87,46 @@ describe("personal analytics", () => {
     });
   });
 
+  it("keeps priced tools visible when another provider is partial or unpriced", () => {
+    const mixed = structuredClone(snapshot);
+    const codex = mixed.providers[0]?.analytics;
+    const claude = mixed.providers[1];
+    if (!codex || !claude) throw new Error("Analytics fixture is missing.");
+    claude.analytics = {
+      ...codex,
+      status: "available",
+      totals: { ...codex.today, estimatedCostUSD: 1.25, unpricedTokens: 0 },
+      today: { ...codex.today, estimatedCostUSD: 1.25, unpricedTokens: 0 },
+      daily: [{ date: "2026-07-17", ...codex.today, estimatedCostUSD: 1.25, unpricedTokens: 0 }]
+    };
+    codex.status = "partial";
+    for (const day of codex.daily) day.estimatedCostUSD = null;
+
+    const period = buildPeriodUsage(mixed, "all", "2026-07-17", "2026-07-17");
+    expect(period.partialProviders).toEqual(["Codex"]);
+    expect(period.totals.estimatedCostUSD).toBeCloseTo(1.25);
+    expect(costPresentation(period)).toMatchObject({
+      label: "API-rate estimate",
+      unavailableReason: null,
+      detail: expect.stringContaining("Codex history is partial")
+    });
+  });
+
+  it("shows a priced subtotal when some tokens still lack a list price", () => {
+    const unpriced = structuredClone(snapshot);
+    const analytics = unpriced.providers[0]?.analytics;
+    if (!analytics) throw new Error("Analytics fixture is missing.");
+    analytics.totals.unpricedTokens = 31_800_000;
+    analytics.today.unpricedTokens = 31_800_000;
+    for (const day of analytics.daily) {
+      if (day.date === "2026-07-17") day.unpricedTokens = 31_800_000;
+    }
+    const period = buildPeriodUsage(unpriced, "codex", "2026-07-17", "2026-07-17");
+    expect(period.totals.estimatedCostUSD).toBeCloseTo(0.0022);
+    expect(period.totals.unpricedTokens).toBe(31_800_000);
+    expect(costPresentation(period)).toMatchObject({
+      unavailableReason: null,
+      detail: expect.stringContaining("tokens have no list price")
+    });
+  });
 });

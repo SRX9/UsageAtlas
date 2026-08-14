@@ -197,7 +197,7 @@ export function App(): React.JSX.Element {
     if (route === "day") {
       return (
         <DayDashboard
-          limitProviderOrder={preferences?.limitProviderOrder ?? []}
+          limitOrder={preferences?.limitOrder ?? []}
           notice={notice}
           onOpenLimits={() => navigate("limits")}
           onProviderScopeChange={setProviderScope}
@@ -245,13 +245,15 @@ export function App(): React.JSX.Element {
     if (route === "limits") {
       return (
         <LimitsDashboard
+          limitOrder={preferences?.limitOrder ?? []}
           notice={notice}
           onBack={() => navigate("day")}
-          onProviderOrderChange={(limitProviderOrder) => updatePreferences({ limitProviderOrder })}
+          onLimitOrderChange={(limitOrder) => updatePreferences({ limitOrder })}
           onRefresh={refreshAll}
-          providerOrder={preferences?.limitProviderOrder ?? []}
+          onTrayLimitsChange={(trayLimits) => updatePreferences({ trayLimits })}
           refreshing={refreshing}
           snapshot={snapshot}
+          trayLimits={preferences?.trayLimits ?? {}}
         />
       );
     }

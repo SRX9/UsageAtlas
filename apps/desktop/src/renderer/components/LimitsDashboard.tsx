@@ -1,75 +1,80 @@
 import type { DashboardProvider, DashboardSnapshot } from "@usageatlas/contracts";
-import { Button, Card } from "@heroui/react";
+import { Button, Switch } from "@heroui/react";
+import { Reorder, useDragControls } from "motion/react";
 import { useState } from "react";
 import {
   limitEntries,
-  mergeLimitProviderOrder,
-  rankedLimitProviders
+  limitEntryKey,
+  mergeLimitOrder,
+  rankedLimitEntries,
+  showsInTray,
+  type LimitEntry,
+  type TrayLimitPreferences
 } from "../../shared/capacity-model";
+import { formatReset } from "../dashboard-model";
 import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from "../icons";
 import { enabledProviders } from "../personal-analytics";
 import { AnalyzerNotice, type PageNotice } from "./UsagePageState";
 import { LimitMeter } from "./CapacityMeters";
 import { ProviderLogo } from "./ProviderLogo";
 
+const TODAY_PREVIEW_LIMITS = 4;
+
 interface LimitsDashboardProps {
   snapshot: DashboardSnapshot;
-  providerOrder: string[];
+  limitOrder: string[];
+  trayLimits: TrayLimitPreferences;
   refreshing: boolean;
   notice: PageNotice | null;
   onBack(): void;
-  onProviderOrderChange(providerOrder: string[]): Promise<void>;
+  onLimitOrderChange(limitOrder: string[]): Promise<void>;
+  onTrayLimitsChange(trayLimits: TrayLimitPreferences): Promise<void>;
   onRefresh(): Promise<void>;
 }
 
 export function LimitsDashboard({
   snapshot,
-  providerOrder,
+  limitOrder,
+  trayLimits,
   refreshing,
   notice,
   onBack,
-  onProviderOrderChange,
+  onLimitOrderChange,
+  onTrayLimitsChange,
   onRefresh
 }: LimitsDashboardProps): React.JSX.Element {
-  const providers = rankedLimitProviders(enabledProviders(snapshot), providerOrder);
-  const providerIDs = providers.map((provider) => provider.id);
-  const [draggedProviderID, setDraggedProviderID] = useState<string | null>(null);
-  const [dropTargetID, setDropTargetID] = useState<string | null>(null);
+  const providers = enabledProviders(snapshot);
+  const entries = rankedLimitEntries(providers, limitOrder);
+  const rankedKeys = entries.map(limitEntryKey);
+  const entriesByKey = new Map(entries.map((entry) => [limitEntryKey(entry), entry]));
+  const quietProviders = providers.filter((provider) => limitEntries([provider]).length === 0);
+  // A drag reorders locally first; the saved ranking catches up once the write lands.
+  const [draggedKeys, setDraggedKeys] = useState<string[] | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const keys = draggedKeys && holdsSameKeys(draggedKeys, rankedKeys) ? draggedKeys : rankedKeys;
+  const trayCount = keys.filter((key) => showsInTray(trayLimits, key)).length;
 
-  function commitVisibleOrder(nextVisibleProviderIDs: string[], providerID: string, providerName: string): void {
-    const nextOrder = mergeLimitProviderOrder(providerOrder, nextVisibleProviderIDs);
-    void onProviderOrderChange(nextOrder);
-    const nextRank = nextVisibleProviderIDs.indexOf(providerID) + 1;
-    setAnnouncement(`${providerName} moved to priority ${nextRank}.`);
-  }
-
-  function moveProvider(providerID: string, direction: -1 | 1): void {
-    const currentIndex = providerIDs.indexOf(providerID);
-    const nextIndex = currentIndex + direction;
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= providerIDs.length) return;
-    const nextIDs = [...providerIDs];
-    [nextIDs[currentIndex], nextIDs[nextIndex]] = [nextIDs[nextIndex], nextIDs[currentIndex]];
-    const providerName = providers.find((provider) => provider.id === providerID)?.name ?? providerID;
-    commitVisibleOrder(nextIDs, providerID, providerName);
-  }
-
-  function dropProvider(targetProviderID: string): void {
-    if (!draggedProviderID || draggedProviderID === targetProviderID) {
-      setDraggedProviderID(null);
-      setDropTargetID(null);
-      return;
+  async function commitOrder(nextKeys: string[]): Promise<void> {
+    setDraggedKeys(nextKeys);
+    try {
+      await onLimitOrderChange(mergeLimitOrder(limitOrder, nextKeys));
+    } finally {
+      setDraggedKeys(null);
     }
-    const nextIDs = [...providerIDs];
-    const sourceIndex = nextIDs.indexOf(draggedProviderID);
-    const targetIndex = nextIDs.indexOf(targetProviderID);
-    if (sourceIndex < 0 || targetIndex < 0) return;
-    nextIDs.splice(sourceIndex, 1);
-    nextIDs.splice(targetIndex, 0, draggedProviderID);
-    const providerName = providers.find((provider) => provider.id === draggedProviderID)?.name ?? draggedProviderID;
-    commitVisibleOrder(nextIDs, draggedProviderID, providerName);
-    setDraggedProviderID(null);
-    setDropTargetID(null);
+  }
+
+  function moveLimit(key: string, direction: -1 | 1): void {
+    const currentIndex = keys.indexOf(key);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= keys.length) return;
+    const nextKeys = [...keys];
+    [nextKeys[currentIndex], nextKeys[nextIndex]] = [nextKeys[nextIndex], nextKeys[currentIndex]];
+    setAnnouncement(`${limitName(entriesByKey.get(key))} moved to priority ${nextIndex + 1}.`);
+    void commitOrder(nextKeys);
+  }
+
+  function setTrayVisibility(key: string, shown: boolean): void {
+    void onTrayLimitsChange({ ...trayLimits, [key]: shown });
   }
 
   return (
@@ -95,142 +100,182 @@ export function LimitsDashboard({
         <p className="atlas-kicker">Live capacity</p>
         <h1 className="atlas-page-title">All tool limits</h1>
         <p className="atlas-hero-description" id="limit-ranking-instructions">
-          Drag tool blocks to rank the four limits shown on Today. Use the arrow controls for keyboard reordering.
-          Tools without a live connection are skipped so the next ranked tool fills the slot.
+          Every limit ranks on its own, so Claude weekly and Cursor API can sit side by side. Drag a row, or use
+          the arrow controls, and the top {TODAY_PREVIEW_LIMITS} appear on Today. The tray switch decides whether
+          a limit is listed when you right-click the tray icon.
         </p>
       </header>
 
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
-      <div
-        aria-describedby="limit-ranking-instructions"
-        className="atlas-limits-page__providers"
-        onDragOver={(event) => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-        }}
-      >
-        {providers.map((provider, index) => (
-          <div
-            className="atlas-provider-rank-item"
-            data-dragging={draggedProviderID === provider.id ? "true" : "false"}
-            data-drop-target={dropTargetID === provider.id && draggedProviderID !== provider.id ? "true" : "false"}
-            draggable
-            key={provider.id}
-            onDragEnd={() => {
-              setDraggedProviderID(null);
-              setDropTargetID(null);
-            }}
-            onDragEnter={() => setDropTargetID(provider.id)}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", provider.id);
-              setDraggedProviderID(provider.id);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              dropProvider(provider.id);
-            }}
-          >
-            <ProviderLimitsCard
-              index={index}
-              onMove={(direction) => moveProvider(provider.id, direction)}
-              provider={provider}
-              total={providers.length}
-            />
+
+      {keys.length > 0 ? (
+        <>
+          <div className="atlas-limit-rank-legend">
+            <span>{keys.length} {keys.length === 1 ? "limit" : "limits"} ranked</span>
+            <span>{trayCount} in the tray menu</span>
           </div>
-        ))}
-      </div>
+          <Reorder.Group
+            aria-describedby="limit-ranking-instructions"
+            aria-label="Ranked tool limits"
+            as="ol"
+            axis="y"
+            className="atlas-limit-rank-list"
+            onReorder={setDraggedKeys}
+            values={keys}
+          >
+            {keys.map((key, index) => {
+              const entry = entriesByKey.get(key);
+              return entry ? (
+                <LimitRankRow
+                  entry={entry}
+                  index={index}
+                  key={key}
+                  limitKey={key}
+                  onDragSettled={() => { if (draggedKeys) void commitOrder(draggedKeys); }}
+                  onMove={(direction) => moveLimit(key, direction)}
+                  onTrayChange={(shown) => setTrayVisibility(key, shown)}
+                  total={keys.length}
+                  trayVisible={showsInTray(trayLimits, key)}
+                />
+              ) : null;
+            })}
+          </Reorder.Group>
+        </>
+      ) : (
+        <LimitsEmpty />
+      )}
+
+      {quietProviders.length > 0 ? (
+        <section aria-labelledby="quiet-tools-heading" className="atlas-limit-quiet">
+          <h2 id="quiet-tools-heading">Not reporting limits</h2>
+          <ul>
+            {quietProviders.map((provider) => (
+              <li key={provider.id}>
+                <ProviderLogo mini providerID={provider.id} providerName={provider.name} />
+                <strong>{provider.name}</strong>
+                <span>{quietReason(provider)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function ProviderLimitsCard({
-  provider,
+function LimitRankRow({
+  entry,
+  limitKey,
   index,
   total,
-  onMove
+  trayVisible,
+  onMove,
+  onTrayChange,
+  onDragSettled
 }: {
-  provider: DashboardProvider;
+  entry: LimitEntry;
+  limitKey: string;
   index: number;
   total: number;
+  trayVisible: boolean;
   onMove(direction: -1 | 1): void;
+  onTrayChange(shown: boolean): void;
+  onDragSettled(): void;
 }): React.JSX.Element {
-  const entries = limitEntries([provider]);
-  const priority = index + 1;
+  const dragControls = useDragControls();
+  const name = limitName(entry);
 
   return (
-    <Card className="atlas-provider-limits" variant="transparent">
-      <Card.Header className="atlas-provider-limits__header">
-        <div className="atlas-provider-limits__identity">
-          <span aria-hidden="true" className="atlas-provider-limits__drag-handle">
-            <i /><i /><i /><i /><i /><i />
-          </span>
-          <ProviderLogo providerID={provider.id} providerName={provider.name} />
-          <div>
-            <Card.Title>{provider.name}</Card.Title>
-            <Card.Description>{provider.identity?.plan ?? "Active tool"}</Card.Description>
-          </div>
+    <Reorder.Item
+      as="li"
+      className="atlas-limit-rank-row"
+      dragControls={dragControls}
+      dragListener={false}
+      onDragEnd={onDragSettled}
+      // The row drags from anywhere except its own controls, which keep their own presses.
+      onPointerDown={(event) => {
+        if ((event.target as Element).closest("button, input, [data-slot='switch']")) return;
+        dragControls.start(event);
+      }}
+      value={limitKey}
+    >
+      <span aria-hidden="true" className="atlas-limit-rank-row__handle">
+        <i /><i /><i /><i /><i /><i />
+      </span>
+      <span className="atlas-limit-rank-row__priority">{index + 1}</span>
+      <div className="atlas-limit-rank-row__identity">
+        <ProviderLogo compact providerID={entry.provider.id} providerName={entry.provider.name} />
+        <div>
+          <strong>{name}</strong>
+          <p>{entry.provider.identity?.plan ?? entry.provider.name} · {formatReset(entry.window)}</p>
         </div>
-        <div className="atlas-provider-limits__ranking">
-          <span className="atlas-provider-limits__priority">Priority {priority}</span>
-          <span className="atlas-provider-limits__count">
-            {entries.length} {entries.length === 1 ? "limit" : "limits"}
-          </span>
-          <div className="atlas-provider-limits__rank-actions">
-            <Button
-              aria-label={`Move ${provider.name} earlier`}
-              className="atlas-provider-limits__rank-button atlas-provider-limits__rank-button--up"
-              isDisabled={index === 0}
-              isIconOnly
-              onPress={() => onMove(-1)}
-              size="sm"
-              variant="tertiary"
-            >
-              <ChevronRightIcon />
-            </Button>
-            <Button
-              aria-label={`Move ${provider.name} later`}
-              className="atlas-provider-limits__rank-button atlas-provider-limits__rank-button--down"
-              isDisabled={index === total - 1}
-              isIconOnly
-              onPress={() => onMove(1)}
-              size="sm"
-              variant="tertiary"
-            >
-              <ChevronRightIcon />
-            </Button>
-          </div>
+      </div>
+      <div className="atlas-limit-rank-row__meter">
+        <LimitMeter compact entry={entry} showHeader={false} />
+      </div>
+      <div className="atlas-limit-rank-row__actions">
+        {/* The switch renders its own label, so this caption stays a plain span. */}
+        <span className="atlas-limit-rank-row__tray">
+          <span aria-hidden="true">Tray</span>
+          <Switch
+            aria-label={`Show ${name} in the tray menu`}
+            isSelected={trayVisible}
+            onChange={onTrayChange}
+          >
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch.Content>
+          </Switch>
+        </span>
+        <div className="atlas-limit-rank-row__rank-actions">
+          <Button
+            aria-label={`Move ${name} earlier`}
+            className="atlas-limit-rank-row__rank-button atlas-limit-rank-row__rank-button--up"
+            isDisabled={index === 0}
+            isIconOnly
+            onPress={() => onMove(-1)}
+            size="sm"
+            variant="tertiary"
+          >
+            <ChevronRightIcon />
+          </Button>
+          <Button
+            aria-label={`Move ${name} later`}
+            className="atlas-limit-rank-row__rank-button atlas-limit-rank-row__rank-button--down"
+            isDisabled={index === total - 1}
+            isIconOnly
+            onPress={() => onMove(1)}
+            size="sm"
+            variant="tertiary"
+          >
+            <ChevronRightIcon />
+          </Button>
         </div>
-      </Card.Header>
-      <Card.Content>
-        {provider.error ? (
-          <ProviderLimitEmpty title="Limits need attention" detail={provider.error.message} />
-        ) : entries.length > 0 ? (
-          <div className="atlas-provider-limits__meters">
-            {entries.map((entry) => (
-              <LimitMeter
-                entry={entry}
-                key={`${entry.provider.id}-${entry.window.kind}`}
-                showReset
-              />
-            ))}
-          </div>
-        ) : (
-          <ProviderLimitEmpty
-            detail="This active tool is connected, but it did not report a metered window."
-            title="No metered limits"
-          />
-        )}
-      </Card.Content>
-    </Card>
+      </div>
+    </Reorder.Item>
   );
 }
 
-function ProviderLimitEmpty({ title, detail }: { title: string; detail: string }): React.JSX.Element {
+function LimitsEmpty(): React.JSX.Element {
   return (
-    <div className="atlas-provider-limits__empty">
-      <strong>{title}</strong>
-      <p>{detail}</p>
+    <div className="atlas-limit-rank-empty">
+      <strong>No live limits</strong>
+      <p>Active tools are connected, but none of them reported a metered window yet.</p>
     </div>
   );
+}
+
+function limitName(entry: LimitEntry | undefined): string {
+  return entry ? `${entry.provider.name} ${entry.window.label}` : "This limit";
+}
+
+function quietReason(provider: DashboardProvider): string {
+  if (provider.error) return provider.error.message;
+  return "Connected, but it did not report a metered window.";
+}
+
+function holdsSameKeys(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((key) => right.includes(key));
 }

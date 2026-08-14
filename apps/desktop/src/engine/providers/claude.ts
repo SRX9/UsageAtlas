@@ -1,7 +1,8 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
 import type { ProviderAdapter, ProviderContext } from "../provider";
 import { ProviderError } from "../provider";
-import { LocalUsageScanner, type AnalyticsScanner } from "../analytics/local-usage";
+import { LocalUsageScanner, type AnalyticsScanner, type AnalyticsScanContext } from "../analytics/local-usage";
+import type { PricingCatalog } from "../analytics/models-dev";
 import { providerFailure, scanProviderAnalytics } from "../analytics/provider-analytics";
 import { credentialLocations } from "../platform/credentials";
 import { fetchProviderJson, type FetchImplementation } from "../platform/http";
@@ -20,6 +21,7 @@ interface ClaudeAdapterOptions {
   homeDirectory?: string;
   fetch?: FetchImplementation;
   analyticsScanner?: AnalyticsScanner;
+  pricingCatalogLoader?: (context: AnalyticsScanContext) => Promise<PricingCatalog>;
 }
 
 interface ClaudeCredential {
@@ -30,7 +32,8 @@ interface ClaudeCredential {
 export function createClaudeAdapter(options: ClaudeAdapterOptions = {}): ProviderAdapter {
   const analyticsScanner = options.analyticsScanner ?? new LocalUsageScanner({
     environment: options.environment,
-    homeDirectory: options.homeDirectory
+    homeDirectory: options.homeDirectory,
+    pricingCatalogLoader: options.pricingCatalogLoader
   });
   return {
     id: "claude",

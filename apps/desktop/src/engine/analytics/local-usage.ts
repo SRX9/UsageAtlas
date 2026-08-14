@@ -13,6 +13,7 @@ import { opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { emptyPricingCatalog, type PricingCatalog } from "./models-dev";
 import {
   estimateClaudeCost,
   estimateCodexCost,
@@ -37,6 +38,7 @@ export interface LocalUsageScannerOptions {
   historyDays?: number;
   maxFiles?: number;
   maxLineBytes?: number;
+  pricingCatalogLoader?: (context: AnalyticsScanContext) => Promise<PricingCatalog>;
 }
 
 export interface UsageRecord {
@@ -121,7 +123,9 @@ export class LocalUsageScanner implements AnalyticsScanner {
   private readonly historyDays: number;
   private readonly maxFiles: number;
   private readonly maxLineBytes: number;
+  private readonly pricingCatalogLoader?: (context: AnalyticsScanContext) => Promise<PricingCatalog>;
   private readonly cache = new Map<string, FileCacheEntry>();
+  private catalogRevision = "";
 
   constructor(options: LocalUsageScannerOptions = {}) {
     this.environment = options.environment ?? process.env;
@@ -129,10 +133,18 @@ export class LocalUsageScanner implements AnalyticsScanner {
     this.historyDays = clampInteger(options.historyDays ?? DEFAULT_HISTORY_DAYS, 1, 366);
     this.maxFiles = clampInteger(options.maxFiles ?? DEFAULT_MAX_FILES, 1, 20_000);
     this.maxLineBytes = clampInteger(options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES, 64 * 1024, 4 * 1024 * 1024);
+    this.pricingCatalogLoader = options.pricingCatalogLoader;
   }
 
   async scan(provider: AnalyticsProvider, context: AnalyticsScanContext): Promise<LocalUsageAnalytics> {
     context.signal.throwIfAborted();
+    const catalog = this.pricingCatalogLoader
+      ? await this.pricingCatalogLoader(context).catch(() => emptyPricingCatalog())
+      : emptyPricingCatalog();
+    if (catalog.revision !== this.catalogRevision) {
+      this.cache.clear();
+      this.catalogRevision = catalog.revision;
+    }
     const roots = localUsageRoots(provider, this.environment, this.homeDirectory);
     const discovery = await discoverJsonlFiles(roots, this.maxFiles, context.signal);
     const activeFiles = new Set(discovery.files);
@@ -150,7 +162,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
         const file = discovery.files[index];
         if (!file) continue;
         try {
-          parsed[index] = await this.parseOrReuse(provider, file, context.signal);
+          parsed[index] = await this.parseOrReuse(provider, file, context.signal, catalog);
         } catch (error) {
           // A single unreadable file (rotated away mid-scan, locked, permission denied)
           // must not abandon the files this worker has not reached yet.
@@ -189,7 +201,12 @@ export class LocalUsageScanner implements AnalyticsScanner {
     );
   }
 
-  private async parseOrReuse(provider: AnalyticsProvider, file: string, signal: AbortSignal): Promise<ParsedFile> {
+  private async parseOrReuse(
+    provider: AnalyticsProvider,
+    file: string,
+    signal: AbortSignal,
+    catalog: PricingCatalog
+  ): Promise<ParsedFile> {
     signal.throwIfAborted();
     const metadata = await stat(file);
     const cached = this.cache.get(file);
@@ -197,8 +214,8 @@ export class LocalUsageScanner implements AnalyticsScanner {
       return cached;
     }
     const parsed = provider === "codex"
-      ? await parseCodexFile(file, signal, this.maxLineBytes)
-      : await parseClaudeFile(file, signal, this.maxLineBytes);
+      ? await parseCodexFile(file, signal, this.maxLineBytes, catalog)
+      : await parseClaudeFile(file, signal, this.maxLineBytes, catalog);
     this.cache.set(file, { ...parsed, size: metadata.size, modifiedAt: metadata.mtimeMs });
     return parsed;
   }
@@ -345,7 +362,12 @@ async function discoverJsonlFiles(roots: string[], maxFiles: number, signal: Abo
   return { files, errors, truncated };
 }
 
-async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: number): Promise<ParsedFile> {
+async function parseCodexFile(
+  file: string,
+  signal: AbortSignal,
+  maxLineBytes: number,
+  catalog: PricingCatalog
+): Promise<ParsedFile> {
   let currentModel = "unknown";
   let currentTier = "standard";
   let currentTurnID: string | null = null;
@@ -356,7 +378,12 @@ async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: n
   const records: UsageRecord[] = [];
 
   await scanLines(file, signal, maxLineBytes, (line, final) => {
-    if (!line.includes("session_meta") && !line.includes("turn_context") && !line.includes("event_msg")) return;
+    if (
+      !line.includes("session_meta")
+      && !line.includes("turn_context")
+      && !line.includes("event_msg")
+      && !line.includes("world_state")
+    ) return;
     const root = parseObject(line);
     if (!root) {
       // The active session file can end mid-entry while the tool is still writing it.
@@ -370,6 +397,14 @@ async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: n
       projectPath = firstString(payload?.cwd, root.cwd) ?? projectPath;
       return;
     }
+    if (type === "world_state") {
+      const state = objectValue(payload?.state) ?? payload;
+      const personality = objectValue(state?.personality);
+      const model = firstString(state?.model, personality?.model, payload?.model);
+      if (model !== null) currentModel = normalizeCodexModel(model);
+      currentTier = normalizeServiceTier(firstString(state?.service_tier, payload?.service_tier)) ?? currentTier;
+      return;
+    }
     if (type === "turn_context") {
       const info = objectValue(payload?.info);
       const model = firstString(payload?.model, payload?.model_name, info?.model, info?.model_name);
@@ -380,6 +415,13 @@ async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: n
     }
     if (type !== "event_msg" || !payload) return;
     const payloadType = stringValue(payload.type);
+    if (payloadType === "thread_settings_applied") {
+      const settings = objectValue(payload.thread_settings);
+      const model = firstString(settings?.model);
+      if (model !== null) currentModel = normalizeCodexModel(model);
+      currentTier = normalizeServiceTier(firstString(settings?.service_tier)) ?? currentTier;
+      return;
+    }
     if (payloadType === "task_started") {
       currentTurnID = firstString(payload.turn_id, payload.turnId, payload.id);
       return;
@@ -426,7 +468,7 @@ async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: n
       cacheCreationInputTokens: cacheCreation,
       outputTokens: delta.output,
       totalTokens: delta.input + delta.output,
-      estimatedCostUSD: estimateCodexCost(costInput),
+      estimatedCostUSD: estimateCodexCost(costInput, catalog),
       eventKey: `codex|${timestamp}|${turnID ?? ""}|${model}|${tier}|${delta.input}|${cached}|${cacheCreation}|${delta.output}`
     });
   });
@@ -442,7 +484,12 @@ async function parseCodexFile(file: string, signal: AbortSignal, maxLineBytes: n
   };
 }
 
-async function parseClaudeFile(file: string, signal: AbortSignal, maxLineBytes: number): Promise<ParsedFile> {
+async function parseClaudeFile(
+  file: string,
+  signal: AbortSignal,
+  maxLineBytes: number,
+  catalog: PricingCatalog
+): Promise<ParsedFile> {
   let skippedLines = 0;
   const records: UsageRecord[] = [];
   await scanLines(file, signal, maxLineBytes, (line, final) => {
@@ -509,7 +556,7 @@ async function parseClaudeFile(file: string, signal: AbortSignal, maxLineBytes: 
       cacheCreationInputTokens,
       outputTokens,
       totalTokens,
-      estimatedCostUSD: estimateClaudeCost(costInput),
+      estimatedCostUSD: estimateClaudeCost(costInput, catalog),
       eventKey: messageID
         ? `claude|${messageID}`
         : `claude|${timestamp}|${model}|${speed}|${inputTokens}|${cachedInputTokens}|${cacheCreationInputTokens}|${cacheCreation1hInputTokens}|${outputTokens}`
@@ -750,7 +797,7 @@ function finalizeTotals(value: MutableTotals, suppressCost = false): UsageTotals
     outputTokens: value.outputTokens,
     totalTokens: value.totalTokens,
     requests: value.requests,
-    estimatedCostUSD: !suppressCost && value.pricedRequests > 0 && value.unpricedTokens === 0
+    estimatedCostUSD: !suppressCost && value.pricedRequests > 0
       ? roundCost(value.estimatedCostUSD)
       : null,
     unpricedTokens: value.unpricedTokens

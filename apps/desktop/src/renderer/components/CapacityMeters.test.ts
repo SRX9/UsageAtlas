@@ -2,13 +2,15 @@ import type { DashboardProvider } from "@usageatlas/contracts";
 import { describe, expect, it } from "vitest";
 import {
   limitEntries,
-  mergeLimitProviderOrder,
-  previewLimitEntries,
-  rankedLimitProviders
+  mergeLimitOrder,
+  rankedLimitEntries,
+  sanitizeLimitOrder,
+  sanitizeTrayLimits,
+  trayLimitEntries
 } from "../../shared/capacity-model";
 
 describe("limitEntries", () => {
-  it("keeps enabled healthy limits and orders the most constrained first", () => {
+  it("keeps one entry per live window and drops tools that are off or failing", () => {
     const providers = [
       provider("codex", true, false, [["weekly", 64], ["session", 21]]),
       provider("claude", true, false, [["session", 42]]),
@@ -16,51 +18,81 @@ describe("limitEntries", () => {
       provider("opencode", true, true, [["weekly", 5]])
     ];
 
-    expect(limitEntries(providers).map((entry) => [
-      entry.provider.id,
-      entry.window.kind,
-      entry.window.remainingPercent
-    ])).toEqual([
-      ["codex", "session", 21],
-      ["claude", "session", 42],
-      ["codex", "weekly", 64]
+    expect(limitEntries(providers).map((entry) => [entry.provider.id, entry.window.kind])).toEqual([
+      ["codex", "weekly"],
+      ["codex", "session"],
+      ["claude", "session"]
     ]);
   });
 
   it("returns an empty list when no active tool reports a live limit", () => {
     expect(limitEntries([provider("codex", true, false, [])])).toEqual([]);
   });
-  it("shows one limit per ranked tool and lets the next connected tool fill an empty slot", () => {
+});
+
+describe("rankedLimitEntries", () => {
+  it("alternates between tools when nothing has been ranked yet", () => {
     const providers = [
       provider("opencode", true, false, [["weekly", 54]]),
-      provider("cursor", true, false, [["plan", 72], ["on-demand", 16]]),
+      provider("cursor", true, false, [["plan", 72], ["api", 16]]),
       provider("claude", true, true, [["session", 28]]),
-      provider("codex", true, false, [["weekly", 64], ["session", 21]]),
-      provider("gemini", true, false, [["daily", 80]])
+      provider("codex", true, false, [["session", 21], ["weekly", 64]])
     ];
 
-    expect(previewLimitEntries(providers).map((entry) => [entry.provider.id, entry.window.kind])).toEqual([
+    expect(rankedLimitEntries(providers).map((entry) => [entry.provider.id, entry.window.kind])).toEqual([
       ["codex", "session"],
       ["cursor", "plan"],
       ["opencode", "weekly"],
-      ["gemini", "daily"]
+      ["codex", "weekly"],
+      ["cursor", "api"]
     ]);
   });
 
-  it("uses a saved ranking before the default provider order", () => {
+  it("ranks individual limits, so two tools can interleave their windows", () => {
     const providers = [
-      provider("codex", true, false, [["session", 50]]),
-      provider("claude", true, false, [["session", 50]])
+      provider("codex", true, false, [["session", 21], ["weekly", 64]]),
+      provider("cursor", true, false, [["plan", 72], ["api", 16]])
     ];
-    expect(rankedLimitProviders(providers, ["claude", "codex"]).map(({ id }) => id))
-      .toEqual(["claude", "codex"]);
+
+    expect(rankedLimitEntries(providers, ["cursor:api", "codex:weekly"])
+      .map((entry) => [entry.provider.id, entry.window.kind])).toEqual([
+      ["cursor", "api"],
+      ["codex", "weekly"],
+      ["codex", "session"],
+      ["cursor", "plan"]
+    ]);
+  });
+});
+
+describe("trayLimitEntries", () => {
+  it("keeps ranked limits until one is switched off", () => {
+    const providers = [provider("claude", true, false, [["session", 42], ["weekly", 81]])];
+
+    expect(trayLimitEntries(providers, ["claude:weekly", "claude:session"], { "claude:session": false })
+      .map((entry) => entry.window.kind)).toEqual(["weekly"]);
+  });
+});
+
+describe("mergeLimitOrder", () => {
+  it("keeps limits that are offline in their ranked slots", () => {
+    expect(mergeLimitOrder(
+      ["codex:session", "claude:weekly", "cursor:plan", "opencode:weekly"],
+      ["opencode:weekly", "cursor:plan", "codex:session"]
+    )).toEqual(["opencode:weekly", "claude:weekly", "cursor:plan", "codex:session"]);
   });
 
-  it("keeps hidden tools in their ranked slots when visible tools are reordered", () => {
-    expect(mergeLimitProviderOrder(
-      ["codex", "claude", "cursor", "opencode"],
-      ["opencode", "cursor", "codex"]
-    )).toEqual(["opencode", "claude", "cursor", "codex"]);
+  it("saves a first ranking when nothing was stored before", () => {
+    expect(mergeLimitOrder([], ["claude:weekly", "cursor:api"]))
+      .toEqual(["claude:weekly", "cursor:api"]);
+  });
+});
+
+describe("stored preference sanitizing", () => {
+  it("drops values that are not limit keys", () => {
+    expect(sanitizeLimitOrder(["claude:weekly", "claude", 7, "claude:weekly"]))
+      .toEqual(["claude:weekly"]);
+    expect(sanitizeTrayLimits({ "claude:weekly": false, "claude:session": "no", bogus: true }))
+      .toEqual({ "claude:weekly": false });
   });
 });
 

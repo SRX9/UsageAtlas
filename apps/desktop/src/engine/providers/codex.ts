@@ -2,7 +2,8 @@ import type { DashboardProvider } from "@usageatlas/contracts";
 import { spawn } from "node:child_process";
 import type { ProviderAdapter, ProviderContext } from "../provider";
 import { ProviderError } from "../provider";
-import { LocalUsageScanner, type AnalyticsScanner } from "../analytics/local-usage";
+import { LocalUsageScanner, type AnalyticsScanner, type AnalyticsScanContext } from "../analytics/local-usage";
+import type { PricingCatalog } from "../analytics/models-dev";
 import { providerFailure, scanProviderAnalytics } from "../analytics/provider-analytics";
 import { DESKTOP_VERSION } from "../../shared/version";
 import {
@@ -23,12 +24,14 @@ interface CodexAdapterOptions {
   homeDirectory?: string;
   analyticsScanner?: AnalyticsScanner;
   appServer?: CodexRateLimitsReader;
+  pricingCatalogLoader?: (context: AnalyticsScanContext) => Promise<PricingCatalog>;
 }
 
 export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderAdapter {
   const analyticsScanner = options.analyticsScanner ?? new LocalUsageScanner({
     environment: options.environment,
-    homeDirectory: options.homeDirectory
+    homeDirectory: options.homeDirectory,
+    pricingCatalogLoader: options.pricingCatalogLoader
   });
   return {
     id: "codex",

@@ -21,6 +21,7 @@ import {
 import squirrelStartup from "electron-squirrel-startup";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isLimitKey } from "../shared/capacity-model";
 import type { AppRoute, DesktopPreferences } from "../shared/desktop-api";
 import { IPC } from "../shared/desktop-api";
 import { isUsageAlertPreferences } from "../shared/usage-alerts";
@@ -31,6 +32,7 @@ import { trayLimitLabels } from "./tray-limits";
 import { configureAutoUpdates } from "./updates";
 import {
   createUsageAlertNotification,
+  UsageAlertDeliveryLog,
   UsageAlertEvaluator,
   type TriggeredUsageAlert
 } from "./usage-alerts";
@@ -66,6 +68,7 @@ let telemetry: DesktopTelemetry;
 
 const activeUsageNotifications = new Set<Notification>();
 const usageAlertEvaluator = new UsageAlertEvaluator();
+const usageAlertDeliveryLog = new UsageAlertDeliveryLog();
 const allowedExternalHosts = new Set(["usageatlas.com", "github.com"]);
 const MAX_BACKGROUND_FILE_SIZE = 25 * 1024 * 1024;
 const runtimeIconDirectory = app.isPackaged
@@ -202,6 +205,7 @@ async function getSnapshotWithUsageAlerts(force = false): Promise<DashboardSnaps
 
 function showUsageNotification(alert: TriggeredUsageAlert): void {
   if (!Notification.isSupported()) return;
+  if (!usageAlertDeliveryLog.allow(alert)) return;
   const content = createUsageAlertNotification(alert);
   const notification = new Notification({
     ...content,
@@ -256,13 +260,12 @@ function updateTrayMenu(snapshot: DashboardSnapshot | null = lastTraySnapshot): 
   if (snapshot) lastTraySnapshot = snapshot;
   if (!tray || tray.isDestroyed()) return;
 
-  const labels = snapshot
-    ? trayLimitLabels(snapshot, preferences.get().limitProviderOrder)
-    : [];
+  const { limitOrder, trayLimits } = preferences.get();
+  const labels = snapshot ? trayLimitLabels(snapshot, limitOrder, trayLimits) : [];
   const limitRows: MenuItemConstructorOptions[] = snapshot
     ? labels.length > 0
       ? labels.map((label) => ({ label, enabled: false }))
-      : [{ label: "No live limits", enabled: false }]
+      : [{ label: "No limits switched on", enabled: false }]
     : [{ label: "Loading available limits...", enabled: false }];
 
   const updateRows: MenuItemConstructorOptions[] = installPendingUpdate
@@ -405,19 +408,27 @@ function isAllowedExternal(value: string): boolean {
 function isPreferencePatch(value: unknown): value is Partial<DesktopPreferences> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const patch = value as Record<string, unknown>;
-  if (Object.keys(patch).some((key) => !["launchAtLogin", "minimizeToTray", "anonymousAnalytics", "backgroundImage", "usageAlerts", "limitProviderOrder"].includes(key))) {
+  if (Object.keys(patch).some((key) => !["launchAtLogin", "minimizeToTray", "anonymousAnalytics", "backgroundImage", "usageAlerts", "limitOrder", "trayLimits"].includes(key))) {
     return false;
   }
   return (patch.launchAtLogin === undefined || typeof patch.launchAtLogin === "boolean")
     && (patch.minimizeToTray === undefined || typeof patch.minimizeToTray === "boolean")
     && (patch.anonymousAnalytics === undefined || typeof patch.anonymousAnalytics === "boolean")
     && (patch.backgroundImage === undefined || patch.backgroundImage === "default" || patch.backgroundImage === "custom")
-    && (patch.limitProviderOrder === undefined || (
-      Array.isArray(patch.limitProviderOrder)
-      && patch.limitProviderOrder.length <= 64
-      && patch.limitProviderOrder.every((providerID) => typeof providerID === "string" && /^[a-z0-9-]{1,64}$/u.test(providerID))
+    && (patch.limitOrder === undefined || (
+      Array.isArray(patch.limitOrder)
+      && patch.limitOrder.length <= 128
+      && patch.limitOrder.every(isLimitKey)
     ))
+    && (patch.trayLimits === undefined || isTrayLimitPatch(patch.trayLimits))
     && (patch.usageAlerts === undefined || isUsageAlertPreferences(patch.usageAlerts));
+}
+
+function isTrayLimitPatch(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  return entries.length <= 128
+    && entries.every(([key, shown]) => isLimitKey(key) && typeof shown === "boolean");
 }
 
 /**

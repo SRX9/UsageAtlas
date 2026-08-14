@@ -18,7 +18,10 @@ export interface DesktopPreferences {
   minimizeToTray: boolean;
   anonymousAnalytics: boolean;
   providerEnabled: Record<string, boolean>;
-  limitProviderOrder: string[];
+  /** Ranked `provider:window` limit keys, most important first. */
+  limitOrder: string[];
+  /** Limit keys switched off for the tray menu. Missing keys stay in the menu. */
+  trayLimits: Record<string, boolean>;
   usageAlerts: UsageAlertPreferences;
 }
 

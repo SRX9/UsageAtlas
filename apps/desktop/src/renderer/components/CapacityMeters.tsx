@@ -2,19 +2,19 @@ import type { DashboardProvider } from "@usageatlas/contracts";
 import { Button, Card } from "@heroui/react";
 import { useId } from "react";
 import "../capacity-meters.css";
-import { previewLimitEntries, type LimitEntry } from "../../shared/capacity-model";
+import { limitEntryKey, rankedLimitEntries, type LimitEntry } from "../../shared/capacity-model";
 import { formatReset } from "../dashboard-model";
 import { ChevronRightIcon } from "../icons";
 import { ProviderLogo } from "./ProviderLogo";
 
 interface LimitsPreviewCardProps {
   providers: DashboardProvider[];
-  providerOrder: string[];
+  limitOrder: string[];
   onOpenAll(): void;
 }
 
-export function LimitsPreviewCard({ providers, providerOrder, onOpenAll }: LimitsPreviewCardProps): React.JSX.Element {
-  const entries = previewLimitEntries(providers, providerOrder, providers.length);
+export function LimitsPreviewCard({ providers, limitOrder, onOpenAll }: LimitsPreviewCardProps): React.JSX.Element {
+  const entries = rankedLimitEntries(providers, limitOrder);
   const visibleEntries = entries.slice(0, 4);
   const hiddenCount = Math.max(0, entries.length - visibleEntries.length);
 
@@ -45,11 +45,7 @@ export function LimitsPreviewCard({ providers, providerOrder, onOpenAll }: Limit
             data-count={String(visibleEntries.length)}
           >
             {visibleEntries.map((entry) => (
-              <LimitMeter
-                compact
-                entry={entry}
-                key={`${entry.provider.id}-${entry.window.kind}`}
-              />
+              <LimitMeter compact entry={entry} key={limitEntryKey(entry)} />
             ))}
           </div>
         ) : (
@@ -63,10 +59,12 @@ export function LimitsPreviewCard({ providers, providerOrder, onOpenAll }: Limit
 export function LimitMeter({
   entry,
   compact = false,
+  showHeader = true,
   showReset = false
 }: {
   entry: LimitEntry;
   compact?: boolean;
+  showHeader?: boolean;
   showReset?: boolean;
 }): React.JSX.Element {
   const remaining = clampPercent(entry.window.remainingPercent);
@@ -83,13 +81,15 @@ export function LimitMeter({
       data-compact={compact ? "true" : "false"}
       role="img"
     >
-      <figcaption className="atlas-limit-meter__header">
-        <ProviderLogo mini providerID={entry.provider.id} providerName={entry.provider.name} />
-        <div className="atlas-limit-meter__label">
-          <span>{entry.window.label}</span>
-          {showReset ? <small>{reset}</small> : null}
-        </div>
-      </figcaption>
+      {showHeader ? (
+        <figcaption className="atlas-limit-meter__header">
+          <ProviderLogo mini providerID={entry.provider.id} providerName={entry.provider.name} />
+          <div className="atlas-limit-meter__label">
+            <span>{entry.window.label}</span>
+            {showReset ? <small>{reset}</small> : null}
+          </div>
+        </figcaption>
+      ) : null}
 
       <div aria-hidden="true" className="atlas-limit-meter__dial">
         <svg viewBox="0 0 180 132">

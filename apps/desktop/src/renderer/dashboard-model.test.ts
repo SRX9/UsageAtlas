@@ -62,7 +62,7 @@ describe("dashboard model", () => {
     expect(sumUsageTotals(days)).toMatchObject({ totalTokens: 720, requests: 1 });
   });
 
-  it("does not publish a known-cost subtotal when some tokens are unpriced", () => {
+  it("publishes a known-cost subtotal when some tokens are unpriced", () => {
     const known = {
       inputTokens: 100,
       cachedInputTokens: 0,
@@ -78,7 +78,7 @@ describe("dashboard model", () => {
       { ...known, estimatedCostUSD: null, unpricedTokens: 110 }
     ])).toMatchObject({
       totalTokens: 220,
-      estimatedCostUSD: null,
+      estimatedCostUSD: 0.01,
       unpricedTokens: 110
     });
   });

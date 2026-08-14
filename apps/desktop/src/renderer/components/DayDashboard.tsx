@@ -31,7 +31,7 @@ interface DayDashboardProps {
   selectedDay: string;
   today: string;
   providerScope: ProviderScope;
-  limitProviderOrder: string[];
+  limitOrder: string[];
   refreshing: boolean;
   notice: PageNotice | null;
   onSelectDay(day: string): void;
@@ -46,7 +46,7 @@ export function DayDashboard({
   selectedDay,
   today,
   providerScope,
-  limitProviderOrder,
+  limitOrder,
   refreshing,
   notice,
   onSelectDay,
@@ -149,7 +149,7 @@ export function DayDashboard({
             )}
           </Card.Content>
         </Card>
-        <LimitsPreviewCard onOpenAll={onOpenLimits} providerOrder={limitProviderOrder} providers={providers} />
+        <LimitsPreviewCard limitOrder={limitOrder} onOpenAll={onOpenLimits} providers={providers} />
       </header>
 
       <section className="atlas-metric-strip atlas-metric-strip--compact" aria-label="Daily usage summary">

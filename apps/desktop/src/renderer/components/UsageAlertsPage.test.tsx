@@ -26,9 +26,10 @@ const preferences: DesktopPreferences = {
   backgroundImage: "default",
   customBackgroundName: null,
   launchAtLogin: false,
-  limitProviderOrder: [],
+  limitOrder: [],
   minimizeToTray: true,
   providerEnabled: {},
+  trayLimits: {},
   usageAlerts: {},
 };
 

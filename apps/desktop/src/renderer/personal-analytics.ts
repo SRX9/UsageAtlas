@@ -131,8 +131,7 @@ export function buildPeriodUsage(
     return {
       date,
       covered: entries.length > 0,
-      ...totals,
-      estimatedCostUSD: partialProviders.length > 0 ? null : totals.estimatedCostUSD
+      ...totals
     };
   });
   const providerRows = providerMaps.map<ProviderPeriodUsage>(({ provider, byDay }) => {
@@ -221,35 +220,29 @@ export function tokenComposition(totals: UsageTotals): TokenComposition {
 }
 
 export function costPresentation(period: PeriodUsage): CostPresentation {
-  if (period.partialProviders.length > 0) {
-    const reason = `Cost hidden because ${joinNames(period.partialProviders)} history is partial.`;
-    return { label: "Cost estimate", detail: reason, unavailableReason: reason };
-  }
-  if (period.totals.unpricedTokens > 0) {
-    const reason = `Cost hidden because ${formatTokenCount(period.totals.unpricedTokens)} tokens have no verified price.`;
-    return { label: "Cost estimate", detail: reason, unavailableReason: reason };
-  }
+  const unpricedNote = period.totals.unpricedTokens > 0
+    ? `${formatTokenCount(period.totals.unpricedTokens)} tokens have no list price`
+    : null;
+  const partialNote = period.partialProviders.length > 0
+    ? `${joinNames(period.partialProviders)} history is partial`
+    : null;
   if (period.totals.estimatedCostUSD === null) {
-    const reason = "No verifiable cost is available for this selection.";
+    const reason = partialNote
+      ? `Cost hidden because ${partialNote}.`
+      : unpricedNote
+        ? `Cost hidden because ${unpricedNote}.`
+        : "No verifiable cost is available for this selection.";
     return { label: "Cost estimate", detail: reason, unavailableReason: reason };
   }
-  if (period.costBasis === "api_equivalent") {
-    return {
-      label: "API-rate estimate",
-      detail: "Public API list rates · not your bill",
-      unavailableReason: null
-    };
-  }
-  if (period.costBasis === "opencode_reported") {
-    return {
-      label: "OpenCode cost",
-      detail: "Reported by OpenCode · may differ from your bill",
-      unavailableReason: null
-    };
-  }
+  const basis = period.costBasis === "opencode_reported"
+    ? { label: "OpenCode cost", detail: "Reported by OpenCode · may differ from your bill" }
+    : period.costBasis === "mixed"
+      ? { label: "Cost estimate", detail: "Mixed provider estimates · not your bill" }
+      : { label: "API-rate estimate", detail: "Public API list rates · not your bill" };
+  const notes = [unpricedNote, partialNote].filter((note): note is string => note !== null);
   return {
-    label: "Cost estimate",
-    detail: "Mixed provider estimates · not your bill",
+    label: basis.label,
+    detail: notes.length > 0 ? `${notes.join(" · ")} · ${basis.detail}` : basis.detail,
     unavailableReason: null
   };
 }

@@ -4,11 +4,21 @@ import { describe, expect, it } from "vitest";
 import { trayLimitLabels } from "./tray-limits";
 
 describe("trayLimitLabels", () => {
-  it("formats the same four ranked limits used by the dashboard preview", () => {
-    expect(trayLimitLabels(fixtureSnapshot as DashboardSnapshot, ["claude", "codex"])).toEqual([
+  it("lists every ranked limit, not one row per tool", () => {
+    expect(trayLimitLabels(fixtureSnapshot as DashboardSnapshot, ["claude:weekly", "codex:session"])).toEqual([
+      "Claude - Weekly: 46% available",
+      "Codex - 5-hour: 75% available",
       "Claude - 5-hour: 32% available",
       "Codex - Weekly: 60% available"
     ]);
+  });
+
+  it("leaves out the limits switched off for the tray", () => {
+    expect(trayLimitLabels(
+      fixtureSnapshot as DashboardSnapshot,
+      ["claude:weekly"],
+      { "codex:session": false, "codex:weekly": false, "claude:session": false }
+    )).toEqual(["Claude - Weekly: 46% available"]);
   });
 
   it("returns no rows when providers do not report live limits", () => {
