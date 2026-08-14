@@ -30,16 +30,23 @@ jobs:
     name: Decide what this run publishes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      # Writes the version this run publishes back onto the branch.
+      contents: write
     outputs:
       build: ${{ steps.decide.outputs.build }}
       release: ${{ steps.decide.outputs.release }}
       tag: ${{ steps.decide.outputs.tag }}
       version: ${{ steps.decide.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha || github.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
       - name: Compare the package version against published releases
         id: decide
         env:
@@ -53,36 +60,92 @@ jobs:
             echo "::error::apps/desktop/package.json has an unusable version: ${version}"
             exit 1
           fi
-          tag="desktop-v${version}"
+          declared="$version"
           build=false
           release=false
 
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # The explicit escape hatch: republishes the declared version as-is.
             build=true
             release="$PUBLISH_REQUESTED"
           elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
-              echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/package.json (${version}). Expected ${tag}."
+            if [[ "$GITHUB_REF_NAME" != "desktop-v${version}" ]]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/package.json (${version}). Expected desktop-v${version}."
               exit 1
             fi
             build=true
             release=true
-          elif gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "${tag} is already published. Bump apps/desktop/package.json to release a new build."
+          elif [[ "$version" == *-* ]]; then
+            # A prerelease suffix is a deliberate choice, so never guess the next one.
+            if gh release view "desktop-v${version}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "::error::desktop-v${version} is already published. Set the next prerelease in apps/desktop/package.json."
+              exit 1
+            fi
+            build=true
+            release=true
           else
+            # Every push to main ships. A version that is not published yet is
+            # released as written, so a hand-written major or minor bump wins;
+            # otherwise the patch walks forward to the first unpublished one.
+            series="${version%.*}"
+            patch="${version##*.}"
+            ceiling=$((patch + 100))
+            while gh release view "desktop-v${series}.${patch}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; do
+              patch=$((patch + 1))
+              if [[ "$patch" -gt "$ceiling" ]]; then
+                echo "::error::Found no unpublished patch between ${declared} and ${series}.${patch}. Bump the minor version in apps/desktop/package.json."
+                exit 1
+              fi
+            done
+            version="${series}.${patch}"
             build=true
             release=true
           fi
 
+          bump=false
+          [[ "$version" != "$declared" ]] && bump=true
           {
             echo "build=$build"
             echo "release=$release"
-            echo "tag=$tag"
+            echo "tag=desktop-v${version}"
             echo "version=$version"
+            echo "bump=$bump"
           } >> "$GITHUB_OUTPUT"
           echo "### UsageAtlas ${version}" >> "$GITHUB_STEP_SUMMARY"
           echo "- build: \`${build}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- publish: \`${release}\` (\`${tag}\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- publish: \`${release}\` (\`desktop-v${version}\`)" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$bump" == "true" ]]; then
+            echo "- auto-bumped from \`${declared}\`, which is already published" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Record the released version on the branch
+        id: bump
+        if: ${{ steps.decide.outputs.bump == 'true' }}
+        env:
+          RELEASE_VERSION: ${{ steps.decide.outputs.version }}
+        shell: bash
+        # Every other job builds this commit, so the tag, the installers, and
+        # the manifest on the branch all carry one version. Pushing with
+        # GITHUB_TOKEN cannot start another run, which is what keeps a release
+        # from releasing itself; [skip ci] says the same thing out loud.
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const file = "apps/desktop/package.json";
+            const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+            manifest.version = process.env.RELEASE_VERSION;
+            fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+          '
+          bun install --lockfile-only
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/package.json bun.lock
+          git commit -m "Release ${RELEASE_VERSION} [skip ci]"
+          if ! git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            echo "::error::${GITHUB_REF_NAME} moved while this run was choosing a version. Nothing was published; re-run the workflow."
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   quality:
     name: Quality (${{ matrix.os }})
@@ -96,6 +159,8 @@ jobs:
         os: [ubuntu-24.04, macos-15-intel, windows-2022]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
@@ -127,6 +192,8 @@ jobs:
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
@@ -194,6 +261,8 @@ jobs:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
@@ -279,6 +348,8 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
@@ -328,8 +399,11 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.gate.outputs.tag }}
       RELEASE_VERSION: ${{ needs.gate.outputs.version }}
+      RELEASE_SHA: ${{ needs.gate.outputs.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: desktop-*
@@ -402,7 +476,7 @@ jobs:
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
-              --target "$GITHUB_SHA" \
+              --target "$RELEASE_SHA" \
               --title "UsageAtlas $RELEASE_VERSION" \
               --generate-notes
           fi

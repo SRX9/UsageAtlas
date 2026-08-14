@@ -85,8 +85,10 @@ The repo is a Bun + Turborepo workspace: the Electron app lives in `apps/desktop
 
 ## Releases
 
-Bumping the version in `apps/desktop/package.json` on `main` builds, signs, and notarizes every platform, tags
-`desktop-v<version>`, and publishes the installers, `SHA256SUMS`, and the update feeds the in-app updater consumes.
+Every push to `main` ships a release. CI takes the version in `apps/desktop/package.json`, moves the patch number to
+the first one that is not published yet, records that back on `main`, then builds, signs, and notarizes every
+platform, tags `desktop-v<version>`, and publishes the installers, `SHA256SUMS`, and the update feeds the in-app
+updater consumes. Write a new major or minor version there by hand and it releases as written instead.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
