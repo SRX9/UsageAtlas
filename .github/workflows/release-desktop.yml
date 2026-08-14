@@ -282,7 +282,7 @@ jobs:
             double=$((size * 2))
             sips -z "$double" "$double" "$source_png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
           done
-          iconutil -c icns "$iconset" -o apps/desktop/resources/icons/usageatlas.icns
+          iconutil -c icns "$iconset" -o apps/desktop/resources/installer/usageatlas.icns
       - name: Prepare signing and notarization
         shell: bash
         run: |

@@ -25,8 +25,10 @@ const masterPath = path.join(
 const destinationRoot = path.join(repoRoot, "apps", "desktop", "resources", "icons");
 const pngPath = path.join(destinationRoot, "usageatlas.png");
 const icoPath = path.join(destinationRoot, "usageatlas.ico");
-const icnsPath = path.join(destinationRoot, "usageatlas.icns");
 const installerRoot = path.join(repoRoot, "apps", "desktop", "resources", "installer");
+// The packaged app ships everything under resources/icons, so the icns, which
+// only the macOS build reads, sits with the other build-time artwork.
+const icnsPath = path.join(installerRoot, "usageatlas.icns");
 const dmgBackgroundPath = path.join(installerRoot, "dmg-background.png");
 const webPublicRoot = path.join(repoRoot, "apps", "web", "public");
 const webLogoPath = path.join(webPublicRoot, "logo.png");

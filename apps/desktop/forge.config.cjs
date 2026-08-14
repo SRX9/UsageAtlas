@@ -11,12 +11,17 @@ const { MakerZIP } = require("@electron-forge/maker-zip");
 const { MakerAppImage } = require("@reforged/maker-appimage");
 
 const resources = path.join(__dirname, "resources");
+// Every file in `icons` ships twice: `extraResource` copies the directory into
+// the packaged app and the renderer serves it as its Vite `publicDir`. Only the
+// PNG and the ICO are read at runtime, so build-only artwork lives in
+// `installer` alongside the DMG background instead.
 const iconDirectory = path.join(resources, "icons");
 const installerDirectory = path.join(resources, "installer");
+const macIcon = path.join(installerDirectory, "usageatlas.icns");
 const platformIcon = process.platform === "win32"
   ? path.join(iconDirectory, "usageatlas.ico")
   : process.platform === "darwin"
-    ? path.join(iconDirectory, "usageatlas.icns")
+    ? macIcon
     : path.join(iconDirectory, "usageatlas.png");
 const windowsSign = process.env.WINDOWS_CERTIFICATE_FILE
   ? {
@@ -103,8 +108,12 @@ module.exports = {
     }),
     new MakerZIP({}, ["darwin", "win32"]),
     // Without these the volume shows stock Electron artwork; `name` must stay unset for the arch suffix.
+    // ULFO is LZFSE rather than the default zlib: a smaller image that also
+    // decompresses faster, readable since macOS 10.11 and so by every release
+    // this Electron version supports.
     new MakerDMG({
-      icon: path.join(iconDirectory, "usageatlas.icns"),
+      format: "ULFO",
+      icon: macIcon,
       background: path.join(installerDirectory, "dmg-background.png")
     }, ["darwin"]),
     // `bin` is what AppRun points at, so it is the launcher, not the binary.
