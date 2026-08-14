@@ -1,8 +1,8 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
-import { Button, Card, Skeleton, Tooltip } from "@heroui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Card, Tooltip } from "@heroui/react";
+import { useMemo, useState } from "react";
 import { DayIcon, HistoryIcon, MoonIcon, ProvidersIcon, RefreshIcon, SunIcon } from "../icons";
-import { formatCompactNumber, formatExactTokens, formatTokens } from "../number-format";
+import { formatExactTokens, formatTokens } from "../number-format";
 import type { ProviderScope } from "../personal-analytics";
 import { formatHourOfDay } from "../time-format";
 import {
@@ -12,19 +12,14 @@ import {
   type UsageInsights,
   type WeekdayInsight
 } from "../usage-insights";
-import { AnalyzerNotice, type PageNotice } from "./UsagePageState";
 import { ProviderScopeSelect } from "./AnalyzerControls";
-import type { ChartConfig } from "./dither-kit/chart-context";
 import { type DitherColor, rgb, seedOfColor } from "./dither-kit/palette";
-import { Pie } from "./dither-kit/pie";
-import { PieChart } from "./dither-kit/pie-chart";
-import { Tooltip as ChartTooltip } from "./dither-kit/tooltip";
+import { ModelMixCard } from "./HeroMetrics";
 
 interface InsightsDashboardProps {
   snapshot: DashboardSnapshot;
   providerScope: ProviderScope;
   refreshing: boolean;
-  notice: PageNotice | null;
   onProviderScopeChange(scope: ProviderScope): void;
   onRefresh(): Promise<void>;
 }
@@ -35,7 +30,6 @@ export function InsightsDashboard({
   snapshot,
   providerScope,
   refreshing,
-  notice,
   onProviderScopeChange,
   onRefresh
 }: InsightsDashboardProps): React.JSX.Element {
@@ -75,8 +69,6 @@ export function InsightsDashboard({
         </div>
       </div>
 
-      {notice ? <AnalyzerNotice {...notice} /> : null}
-
       <header className="atlas-page-header">
         <p className="atlas-kicker">Insights</p>
         <h1 className="atlas-page-title">Your AI rhythm</h1>
@@ -106,15 +98,22 @@ export function InsightsDashboard({
         </Card>
       </section>
 
-      <section className="atlas-section atlas-content-grid" aria-label="Usage mix">
-        <h2 className="sr-only">Usage mix</h2>
-        <ModelMix insights={insights} />
+      <section className="atlas-section" aria-label="Model mix">
+        <ModelMixCard
+          description="How each tool splits its tokens across its top models"
+          emptyMessage="Model share appears when connected tools include model metadata."
+          mix={insights}
+        />
+      </section>
+
+      <section className="atlas-section" aria-label="Weekday balance">
         <WeekdayBalance insights={insights} />
       </section>
 
       <p className="atlas-footnote">
         Insights use all collected history for the selected provider. Hourly activity is shown in local time;
-        model totals reflect each provider&apos;s available model metadata.
+        model totals reflect each provider&apos;s available model metadata. Each spoke on the model radar is one
+        tool&apos;s share of its own tokens, so a quiet tool stays readable next to a busy one.
       </p>
     </div>
   );
@@ -321,18 +320,11 @@ function HeatmapCell({
   totalCells: number;
   weekday: WeekdayInsight;
 }): React.JSX.Element {
-  const [isOpen, setIsOpen] = useState(false);
-  const [detailsReady, setDetailsReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const frameRef = useRef<number | null>(null);
   const cellLabel = `${weekday.label}, ${block.label}: ${formatTokens(block.totalTokens)}`;
   const relativeActivity = peakTokens > 0
     ? `${Math.round((block.totalTokens / peakTokens) * 100)}% of busiest block`
     : "No recorded activity";
-
-  useEffect(() => () => {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-  }, []);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
     let nextIndex: number;
@@ -349,30 +341,15 @@ function HeatmapCell({
     document.getElementById(`heatmap-cell-${nextIndex}`)?.focus();
   }
 
-  function handleOpenChange(nextOpen: boolean): void {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    frameRef.current = null;
-    setIsOpen(nextOpen);
-    setDetailsReady(false);
-
-    if (nextOpen) {
-      frameRef.current = requestAnimationFrame(() => {
-        frameRef.current = requestAnimationFrame(() => {
-          setDetailsReady(true);
-          frameRef.current = null;
-        });
-      });
-    }
-  }
-
   return (
-    <Tooltip
-      closeDelay={0}
-      delay={0}
-      isOpen={isOpen}
-      onOpenChange={handleOpenChange}
-    >
-      <button
+    <Tooltip closeDelay={0} delay={0}>
+      {/*
+        The cell has to be the trigger itself: React Aria hands its hover and focus
+        handlers to whatever consumes the focusable context, so a plain <button>
+        rendered beside it never opens the tooltip. `render` keeps the real button —
+        no wrapper element, and no control nested inside a role="button".
+      */}
+      <Tooltip.Trigger<"button">
         aria-label={cellLabel}
         className="atlas-week-heatmap__cell"
         data-level={block.intensity}
@@ -383,103 +360,21 @@ function HeatmapCell({
         }}
         onKeyDown={handleKeyDown}
         onPointerEnter={() => setKeyboardOpen(false)}
+        render={(props) => <button {...props} type="button" />}
+        role={undefined}
         tabIndex={active ? 0 : -1}
-        type="button"
       />
       <Tooltip.Content className="atlas-heatmap-tooltip" data-keyboard={keyboardOpen} offset={8} placement="top">
         <div className="atlas-heatmap-tooltip__heading">
           <strong>{weekday.label}</strong>
           <span>{block.label}</span>
         </div>
-        <div className="atlas-heatmap-tooltip__details" data-ready={detailsReady}>
-          <dl aria-hidden={!detailsReady} className="atlas-heatmap-tooltip__data">
-            <div><dt>Collected tokens</dt><dd>{formatTokens(block.totalTokens)}</dd></div>
-            <div><dt>Relative activity</dt><dd>{relativeActivity}</dd></div>
-          </dl>
-          <div
-            aria-label="Loading heatmap details"
-            aria-hidden={detailsReady}
-            className="atlas-heatmap-tooltip__skeleton"
-            role="status"
-          >
-            <Skeleton className="h-3 w-full rounded-sm" />
-            <Skeleton className="h-3 w-4/5 rounded-sm" />
-          </div>
-        </div>
+        <dl className="atlas-heatmap-tooltip__data">
+          <div><dt>Collected tokens</dt><dd>{formatTokens(block.totalTokens)}</dd></div>
+          <div><dt>Relative activity</dt><dd>{relativeActivity}</dd></div>
+        </dl>
       </Tooltip.Content>
     </Tooltip>
-  );
-}
-
-function ModelMix({ insights }: { insights: UsageInsights }): React.JSX.Element {
-  const data = insights.models.map((model, index) => ({
-    color: chartPalette[index % chartPalette.length] ?? "grey",
-    id: model.id,
-    name: model.label,
-    value: model.totalTokens
-  }));
-  const config = Object.fromEntries(
-    data.map((row) => [row.name, { color: row.color, label: row.name }])
-  ) as ChartConfig;
-
-  return (
-    <Card className="min-w-0" variant="transparent">
-      <Card.Header>
-        <div>
-          <Card.Title>Model mix</Card.Title>
-          <Card.Description>Share of tokens across reported models</Card.Description>
-        </div>
-      </Card.Header>
-      <Card.Content>
-        {data.length === 0 ? (
-          <InsightEmpty>Model share appears when connected providers include model metadata.</InsightEmpty>
-        ) : (
-          <div className="atlas-model-mix">
-            <div className="atlas-model-donut">
-              <div className="h-[184px] w-[184px]">
-                <PieChart
-                  bloom="low"
-                  config={config}
-                  data={data}
-                  dataKey="value"
-                  innerRadius={0.68}
-                  margins={{ bottom: 8, left: 8, right: 8, top: 8 }}
-                  nameKey="name"
-                >
-                  <Pie variant="gradient" />
-                  <ChartTooltip valueFormatter={(value) => formatTokens(value)} variant="frosted-glass" />
-                </PieChart>
-              </div>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <strong className="atlas-donut-value tabular-nums" title={formatExactTokens(insights.totalModelTokens)}>
-                  {formatCompactNumber(insights.totalModelTokens)}
-                </strong>
-                <span className="text-xs text-muted">tokens</span>
-              </div>
-            </div>
-            <div className="atlas-model-legend">
-              {insights.models.map((model, index) => (
-                <div className="atlas-model-row" key={`${model.id}-${model.label}`}>
-                  <span
-                    aria-hidden="true"
-                    className="atlas-model-row__swatch"
-                    style={{ backgroundColor: ditherColor(chartPalette[index % chartPalette.length] ?? "grey") }}
-                  />
-                  <div>
-                    <strong title={model.label}>{model.label}</strong>
-                    <span>{model.providerNames.join(", ")}</span>
-                  </div>
-                  <span className="atlas-model-row__value" title={formatExactTokens(model.totalTokens)}>
-                    <strong>{model.share}%</strong>
-                    <span>{formatCompactNumber(model.totalTokens)}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card.Content>
-    </Card>
   );
 }
 

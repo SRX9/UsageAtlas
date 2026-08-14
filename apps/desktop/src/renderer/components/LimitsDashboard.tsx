@@ -14,7 +14,6 @@ import {
 import { formatReset } from "../dashboard-model";
 import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from "../icons";
 import { enabledProviders } from "../personal-analytics";
-import { AnalyzerNotice, type PageNotice } from "./UsagePageState";
 import { LimitMeter } from "./CapacityMeters";
 import { ProviderLogo } from "./ProviderLogo";
 
@@ -25,7 +24,6 @@ interface LimitsDashboardProps {
   limitOrder: string[];
   trayLimits: TrayLimitPreferences;
   refreshing: boolean;
-  notice: PageNotice | null;
   onBack(): void;
   onLimitOrderChange(limitOrder: string[]): Promise<void>;
   onTrayLimitsChange(trayLimits: TrayLimitPreferences): Promise<void>;
@@ -37,7 +35,6 @@ export function LimitsDashboard({
   limitOrder,
   trayLimits,
   refreshing,
-  notice,
   onBack,
   onLimitOrderChange,
   onTrayLimitsChange,
@@ -93,8 +90,6 @@ export function LimitsDashboard({
           </Button>
         </div>
       </div>
-
-      {notice ? <AnalyzerNotice {...notice} /> : null}
 
       <header className="atlas-page-header">
         <p className="atlas-kicker">Live capacity</p>

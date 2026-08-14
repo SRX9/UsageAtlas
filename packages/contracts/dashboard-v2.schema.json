@@ -108,6 +108,22 @@
       ],
       "unevaluatedProperties": false
     },
+    "dailyModel": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/metricsFields" },
+        {
+          "type": "object",
+          "required": ["date", "id", "label"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "id": { "type": "string" },
+            "label": { "type": "string" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
     "project": {
       "type": "object",
       "allOf": [
@@ -159,6 +175,7 @@
         "today",
         "daily",
         "models",
+        "dailyModels",
         "projects",
         "sessions",
         "serviceTiers",
@@ -178,6 +195,7 @@
         "daily": { "type": "array", "items": { "$ref": "#/$defs/daily" }, "maxItems": 366 },
         "hourly": { "type": "array", "items": { "$ref": "#/$defs/hourly" }, "maxItems": 8784 },
         "models": { "type": "array", "items": { "$ref": "#/$defs/breakdown" }, "maxItems": 200 },
+        "dailyModels": { "type": "array", "items": { "$ref": "#/$defs/dailyModel" }, "maxItems": 5000 },
         "projects": { "type": "array", "items": { "$ref": "#/$defs/project" }, "maxItems": 200 },
         "sessions": { "type": "array", "items": { "$ref": "#/$defs/session" }, "maxItems": 250 },
         "serviceTiers": { "type": "array", "items": { "$ref": "#/$defs/breakdown" }, "maxItems": 10 },

@@ -5,6 +5,8 @@ import { BellIcon, DayIcon, InsightsIcon, PulseIcon, SettingsIcon, TrendsIcon } 
 interface AppShellProps {
   route: AppRoute;
   engineStatus: EngineStatus;
+  /** Open health notices — the rail dot is the only place they interrupt anything. */
+  noticeCount: number;
   onNavigate(route: AppRoute): void;
   children: React.ReactNode;
 }
@@ -30,7 +32,7 @@ const routeTitles: Record<AppRoute, string> = {
   settings: "Settings"
 };
 
-export function AppShell({ route, engineStatus, onNavigate, children }: AppShellProps): React.JSX.Element {
+export function AppShell({ route, engineStatus, noticeCount, onNavigate, children }: AppShellProps): React.JSX.Element {
   const workspaceRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -72,6 +74,7 @@ export function AppShell({ route, engineStatus, onNavigate, children }: AppShell
             icon={PulseIcon}
             isCurrent={route === "diagnostics"}
             label="Diagnostics"
+            noticeCount={noticeCount}
             onPress={() => onNavigate("diagnostics")}
             status={engineStatus}
           />
@@ -99,35 +102,50 @@ function RailButton({
   icon: Icon,
   isCurrent,
   label,
+  noticeCount = 0,
   onPress,
   status
 }: {
   icon: (props: React.SVGProps<SVGSVGElement>) => React.JSX.Element;
   isCurrent: boolean;
   label: string;
+  noticeCount?: number;
   onPress(): void;
   status?: EngineStatus;
 }): React.JSX.Element {
+  const description = status ? `${label}: ${engineLabel(status)}${noticeLabel(noticeCount)}` : label;
   return (
     <button
       aria-current={isCurrent ? "page" : undefined}
-      aria-label={label}
+      aria-label={description}
       className="atlas-app-shell__rail-button"
       onClick={onPress}
-      title={status ? `${label}: ${engineLabel(status)}` : label}
+      title={description}
       type="button"
     >
       <span className="atlas-app-shell__rail-icon">
         <Icon aria-hidden="true" />
-        {status ? <StatusDot status={status} /> : null}
+        {status ? <StatusDot hasNotices={noticeCount > 0} status={status} /> : null}
       </span>
-      <span className="sr-only">{label}</span>
+      <span className="sr-only">{description}</span>
     </button>
   );
 }
 
-function StatusDot({ status }: { status: EngineStatus }): React.JSX.Element {
-  return <span aria-hidden="true" className="atlas-app-shell__status-dot" data-status={status} />;
+function StatusDot({ hasNotices, status }: { hasNotices: boolean; status: EngineStatus }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="atlas-app-shell__status-dot"
+      data-notices={hasNotices ? "true" : undefined}
+      data-status={status}
+    />
+  );
+}
+
+function noticeLabel(count: number): string {
+  if (count === 0) return "";
+  return ` · ${count} ${count === 1 ? "notice" : "notices"}`;
 }
 
 function engineLabel(status: EngineStatus): string {

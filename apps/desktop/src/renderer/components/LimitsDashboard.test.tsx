@@ -33,7 +33,6 @@ function render(limitOrder: string[] = []): string {
   return renderToStaticMarkup(
     <LimitsDashboard
       limitOrder={limitOrder}
-      notice={null}
       onBack={vi.fn()}
       onLimitOrderChange={vi.fn()}
       onRefresh={vi.fn()}

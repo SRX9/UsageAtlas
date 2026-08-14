@@ -1,40 +1,6 @@
-import { Alert, Button, Skeleton, Tooltip } from "@heroui/react";
-import { AlertIcon, CloseIcon, ProvidersIcon } from "../icons";
+import { Button, Skeleton } from "@heroui/react";
+import { AlertIcon, ProvidersIcon } from "../icons";
 import { EmptyState } from "./UsagePrimitives";
-
-/** The one banner every usage page shows above its content. */
-export interface PageNotice {
-  message: string;
-  detail: string | null;
-  tone: "stale" | "error";
-  onDismiss(): void;
-}
-
-export function AnalyzerNotice({ message, detail, tone, onDismiss }: PageNotice): React.JSX.Element {
-  return (
-    <div className="atlas-page-notice">
-      <Alert status={tone === "error" ? "danger" : "warning"}>
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>{message}</Alert.Title>
-          {detail ? <Alert.Description>{detail}</Alert.Description> : null}
-        </Alert.Content>
-        <Tooltip>
-          <Button
-            aria-label="Dismiss this notice"
-            className="atlas-page-notice__dismiss"
-            isIconOnly
-            onPress={onDismiss}
-            variant="ghost"
-          >
-            <CloseIcon className="size-4" />
-          </Button>
-          <Tooltip.Content>Hide until it changes · stays listed under Engine health</Tooltip.Content>
-        </Tooltip>
-      </Alert>
-    </div>
-  );
-}
 
 export function UsageLoading(): React.JSX.Element {
   return (

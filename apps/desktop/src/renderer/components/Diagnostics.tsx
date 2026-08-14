@@ -1,14 +1,27 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
 import type { EngineDiagnostics, EngineStatus } from "../../shared/desktop-api";
-import { Button, Card, Skeleton } from "@heroui/react";
-import { ExternalIcon, RefreshIcon } from "../icons";
+import { Alert, Button, Card, Skeleton, Tooltip } from "@heroui/react";
+import { CloseIcon, ExternalIcon, RefreshIcon } from "../icons";
 
 const REPOSITORY_URL = "https://github.com/SRX9/UsageAtlas";
+
+/**
+ * Something the usage numbers should be read against — a partial history, a source
+ * that failed, a snapshot past its refresh window. Usage pages stay clean; these are
+ * listed here and flagged by the dot on the Diagnostics rail button.
+ */
+export interface HealthNotice {
+  message: string;
+  detail: string | null;
+  tone: "stale" | "error";
+}
 
 interface DiagnosticsProps {
   diagnostics: EngineDiagnostics | null;
   loading: boolean;
+  notices: HealthNotice[];
   providers: DashboardProvider[];
+  onDismissNotice(message: string): void;
   onOpenExternal(url: string): Promise<void>;
   onReload(): Promise<void>;
 }
@@ -16,7 +29,9 @@ interface DiagnosticsProps {
 export function Diagnostics({
   diagnostics,
   loading,
+  notices,
   providers,
+  onDismissNotice,
   onOpenExternal,
   onReload
 }: DiagnosticsProps): React.JSX.Element {
@@ -27,7 +42,9 @@ export function Diagnostics({
         <div>
           <p className="atlas-kicker">Support</p>
           <h1 className="atlas-page-title">Engine health</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted">Current status of the local UsageAtlas engine.</p>
+          <p className="mt-2 max-w-2xl text-sm text-muted">
+            The local UsageAtlas engine, and anything that qualifies the usage numbers.
+          </p>
         </div>
         <Button isPending={loading} onPress={() => void onReload()} variant="outline">
           <span>Reload</span>
@@ -52,11 +69,38 @@ export function Diagnostics({
         </Card>
       )}
 
+      {notices.length > 0 ? (
+        <section aria-label="Open notices" className="atlas-health-notices">
+          {notices.map((notice) => (
+            <Alert key={notice.message} status={notice.tone === "error" ? "danger" : "warning"}>
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>{notice.message}</Alert.Title>
+                {notice.detail ? <Alert.Description>{notice.detail}</Alert.Description> : null}
+              </Alert.Content>
+              <Tooltip>
+                <Button
+                  aria-label="Dismiss this notice"
+                  className="atlas-health-notices__dismiss"
+                  isIconOnly
+                  onPress={() => onDismissNotice(notice.message)}
+                  variant="ghost"
+                >
+                  <CloseIcon className="size-4" />
+                </Button>
+                <Tooltip.Content>Hide until it changes · the tool stays listed under History coverage</Tooltip.Content>
+              </Tooltip>
+            </Alert>
+          ))}
+        </section>
+      ) : null}
+
       <Card className="mt-4" variant="transparent">
         <Card.Header>
           <Card.Title>History coverage</Card.Title>
           <Card.Description>
-            What each enabled tool reported on the last scan. Notices dismissed on the usage pages stay here.
+            What each enabled tool reported on the last scan. Anything worth knowing about the usage numbers is
+            reported here rather than on the usage pages.
           </Card.Description>
         </Card.Header>
         <Card.Content>

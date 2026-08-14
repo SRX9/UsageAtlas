@@ -51,6 +51,11 @@ export interface UsageBreakdown extends UsageTotals {
   label: string;
 }
 
+/** One model's totals on one local day, so day- and range-scoped views can split by model. */
+export interface UsageDailyModelMetric extends UsageBreakdown {
+  date: string;
+}
+
 export interface UsageProjectBreakdown extends UsageBreakdown {
   path: string | null;
   modelIDs: string[];
@@ -78,6 +83,8 @@ export interface LocalUsageAnalytics {
   daily: UsageDailyMetric[];
   hourly?: UsageHourlyMetric[];
   models: UsageBreakdown[];
+  /** The same model totals split by day; `models` is their sum over the whole coverage. */
+  dailyModels: UsageDailyModelMetric[];
   projects: UsageProjectBreakdown[];
   sessions: UsageSessionBreakdown[];
   serviceTiers: UsageBreakdown[];

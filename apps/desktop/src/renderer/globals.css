@@ -400,6 +400,12 @@
   background: var(--warning);
 }
 
+/* An open notice tints the dot even when the engine itself is fine. It is the
+   only trace notices leave outside Engine health, so it stays a quiet marker. */
+.atlas-app-shell__status-dot[data-notices="true"][data-status="ready"] {
+  background: var(--warning);
+}
+
 .atlas-engine-status__signal {
   display: grid;
   width: 44px;
@@ -496,18 +502,25 @@
 }
 
 /*
- * Page-level notice banner. It sits between the sticky toolbar and the first section,
- * so it owns the gap on both sides instead of leaning against whatever follows it.
+ * Health notices. Usage pages never carry a banner; anything that qualifies the
+ * numbers is listed here, above the coverage each tool reported.
  */
-.atlas-page-notice {
-  margin-block: 6px 20px;
+.atlas-health-notices {
+  display: grid;
+  gap: 10px;
+  margin-block-start: 16px;
 }
 
-.atlas-page-notice .alert__title {
+/* Same inset as the cards it stacks with, so the column reads as one rhythm. */
+.atlas-health-notices .alert {
+  padding-block: 16px;
+}
+
+.atlas-health-notices .alert__title {
   text-wrap: pretty;
 }
 
-.atlas-page-notice .alert__description {
+.atlas-health-notices .alert__description {
   display: block;
   max-width: 78ch;
   margin-block-start: 4px;
@@ -515,7 +528,7 @@
   text-wrap: pretty;
 }
 
-.atlas-page-notice__dismiss {
+.atlas-health-notices__dismiss {
   flex: none;
   align-self: flex-start;
   width: 28px;
@@ -526,8 +539,8 @@
   opacity: 0.65;
 }
 
-.atlas-page-notice__dismiss:hover,
-.atlas-page-notice__dismiss:focus-visible {
+.atlas-health-notices__dismiss:hover,
+.atlas-health-notices__dismiss:focus-visible {
   opacity: 1;
 }
 
@@ -1484,22 +1497,10 @@
   font-size: 0.6875rem;
 }
 
-.atlas-heatmap-tooltip__details {
-  display: grid;
-  min-height: 38px;
-}
-
-.atlas-heatmap-tooltip__data,
-.atlas-heatmap-tooltip__skeleton {
-  grid-area: 1 / 1;
-  transition: opacity 100ms ease;
-}
-
 .atlas-heatmap-tooltip__data {
   display: grid;
   gap: 5px;
   margin: 0;
-  opacity: 0;
 }
 
 .atlas-heatmap-tooltip__data > div {
@@ -1515,21 +1516,6 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.atlas-heatmap-tooltip__skeleton {
-  display: grid;
-  align-content: center;
-  gap: 8px;
-  opacity: 1;
-}
-
-.atlas-heatmap-tooltip__details[data-ready="true"] .atlas-heatmap-tooltip__data {
-  opacity: 1;
-}
-
-.atlas-heatmap-tooltip__details[data-ready="true"] .atlas-heatmap-tooltip__skeleton {
-  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1573,25 +1559,42 @@
   gap: 24px;
 }
 
-.atlas-model-donut {
-  position: relative;
-  width: min(184px, 100%);
-  height: auto;
-  aspect-ratio: 1;
-  flex: 0 0 184px;
-  margin-inline: auto;
-}
-
-.atlas-model-donut > div:first-child {
-  width: 100% !important;
-  height: 100% !important;
+/* Eight spokes carry their labels outside the outer ring, so the radar needs the
+   width a donut did not — its card runs the page rather than half of a grid. */
+.atlas-model-radar {
+  min-width: 300px;
+  height: 320px;
+  flex: 1 1 420px;
 }
 
 .atlas-model-legend {
   display: grid;
-  min-width: 220px;
-  flex: 1 1 250px;
+  min-width: 260px;
+  flex: 1 1 320px;
   gap: 13px;
+}
+
+.atlas-model-series {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-block-end: 4px;
+  border-block-end: 0.5px solid var(--atlas-edge);
+}
+
+.atlas-model-series__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.atlas-model-series__chip i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
 }
 
 .atlas-model-row {
@@ -1748,6 +1751,9 @@
 }
 
 .atlas-page .alert {
+  /* HeroUI rounds alerts to 32px; cards on these pages are 14px, and the two sit
+     directly above each other on Engine health. */
+  border-radius: 14px;
   background: var(--atlas-glass-sheen), color-mix(in oklch, var(--surface) 78%, transparent);
   box-shadow: inset 0 1px 0 var(--atlas-glass-inner-edge), inset 0 0 0 0.5px var(--atlas-edge);
   -webkit-backdrop-filter: var(--atlas-glass-filter);
@@ -2462,6 +2468,7 @@
     grid-template-columns: 1fr;
   }
 
+  .atlas-model-radar,
   .atlas-model-legend {
     min-width: 0;
   }

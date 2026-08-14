@@ -1,4 +1,4 @@
-import type { DashboardSnapshot, UsageTotals } from "@usageatlas/contracts";
+import type { DashboardProvider, DashboardSnapshot, UsageBreakdown, UsageTotals } from "@usageatlas/contracts";
 import { sumUsageTotals } from "./dashboard-model";
 import { inclusiveDayCount, type ProviderScope, providersForScope } from "./personal-analytics";
 import { formatHourOfDay } from "./time-format";
@@ -20,11 +20,33 @@ export interface DaypartInsight {
   share: number;
 }
 
+export interface ModelProviderUsage {
+  name: string;
+  totalTokens: number;
+  /** Percent of that provider's own model volume spent on this model. */
+  share: number;
+}
+
 export interface ModelInsight extends UsageTotals {
   id: string;
   label: string;
   providerNames: string[];
+  /** Per-provider split, busiest first — the radar plots one series per entry. */
+  providers: ModelProviderUsage[];
   share: number;
+}
+
+export interface ModelProviderInsight {
+  name: string;
+  totalTokens: number;
+}
+
+/** Which models the connected tools reached for over the requested days. */
+export interface ModelMix {
+  models: ModelInsight[];
+  modelProviders: ModelProviderInsight[];
+  totalModelTokens: number;
+  topModel: ModelInsight | null;
 }
 
 export interface HourBlockInsight {
@@ -43,7 +65,7 @@ export interface WeekdayInsight {
   hourBlocks: HourBlockInsight[];
 }
 
-export interface UsageInsights {
+export interface UsageInsights extends ModelMix {
   coverageStart: string | null;
   coverageEnd: string | null;
   coverageDays: number;
@@ -53,9 +75,6 @@ export interface UsageInsights {
   peakHour: number | null;
   persona: UsagePersona | null;
   dayparts: DaypartInsight[];
-  models: ModelInsight[];
-  totalModelTokens: number;
-  topModel: ModelInsight | null;
   weekdays: WeekdayInsight[];
   busiestWeekday: WeekdayInsight | null;
 }
@@ -64,10 +83,10 @@ interface TotalsGroup {
   totals: UsageTotals[];
 }
 
-interface ModelGroup extends TotalsGroup {
+interface ModelGroup {
   id: string;
   label: string;
-  providerNames: Set<string>;
+  byProvider: Map<string, UsageTotals[]>;
 }
 
 interface HourlyPoint {
@@ -89,7 +108,60 @@ const daypartDefinitions: Array<{
 ];
 
 const weekdayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const maxVisibleModels = 5;
+/** A radar stops being readable past eight spokes, so the mix keeps the top eight. */
+const maxVisibleModels = 8;
+
+/**
+ * The model mix over `days`, or over every collected day when no range is given.
+ * A range reads the per-day model rows the scanner records; the all-day form reads the
+ * totals, which are the same rows already summed.
+ */
+export function buildModelMix(
+  snapshot: DashboardSnapshot,
+  scope: ProviderScope,
+  days?: { startDay: string; endDay: string }
+): ModelMix {
+  return modelMixOf(
+    providersForScope(snapshot, scope).filter((provider) => provider.analytics !== null),
+    days
+  );
+}
+
+function modelEntriesOf(
+  provider: DashboardProvider,
+  days?: { startDay: string; endDay: string }
+): UsageBreakdown[] {
+  const analytics = provider.analytics;
+  if (!analytics) return [];
+  if (!days) return analytics.models;
+  return analytics.dailyModels.filter((row) => row.date >= days.startDay && row.date <= days.endDay);
+}
+
+function modelMixOf(providers: DashboardProvider[], days?: { startDay: string; endDay: string }): ModelMix {
+  const groups = new Map<string, ModelGroup>();
+  for (const provider of providers) {
+    for (const entry of modelEntriesOf(provider, days)) {
+      const key = entry.label.trim().toLocaleLowerCase();
+      const group = groups.get(key) ?? {
+        id: entry.id,
+        label: entry.label,
+        byProvider: new Map<string, UsageTotals[]>()
+      };
+      const forProvider = group.byProvider.get(provider.name) ?? [];
+      forProvider.push(entry);
+      group.byProvider.set(provider.name, forProvider);
+      groups.set(key, group);
+    }
+  }
+
+  const { models, modelProviders } = buildModels(groups);
+  return {
+    models,
+    modelProviders,
+    totalModelTokens: models.reduce((total, model) => total + model.totalTokens, 0),
+    topModel: models.find((model) => model.id !== "other") ?? null
+  };
+}
 
 export function buildUsageInsights(snapshot: DashboardSnapshot, scope: ProviderScope): UsageInsights {
   const providers = providersForScope(snapshot, scope).filter((provider) => provider.analytics !== null);
@@ -103,7 +175,6 @@ export function buildUsageInsights(snapshot: DashboardSnapshot, scope: ProviderS
     null
   );
   const hourlyGroups = new Map<string, { date: string; hour: number; totals: UsageTotals[] }>();
-  const modelGroups = new Map<string, ModelGroup>();
   const dailyGroups = new Map<string, TotalsGroup>();
 
   for (const provider of providers) {
@@ -115,19 +186,6 @@ export function buildUsageInsights(snapshot: DashboardSnapshot, scope: ProviderS
       const group = hourlyGroups.get(key) ?? { date: entry.date, hour: entry.hour, totals: [] };
       group.totals.push(entry);
       hourlyGroups.set(key, group);
-    }
-
-    for (const entry of item.models) {
-      const key = entry.label.trim().toLocaleLowerCase();
-      const group = modelGroups.get(key) ?? {
-        id: entry.id,
-        label: entry.label,
-        providerNames: new Set<string>(),
-        totals: []
-      };
-      group.providerNames.add(provider.name);
-      group.totals.push(entry);
-      modelGroups.set(key, group);
     }
 
     for (const entry of item.daily) {
@@ -146,11 +204,10 @@ export function buildUsageInsights(snapshot: DashboardSnapshot, scope: ProviderS
   const dayparts = buildDayparts(hourlyPoints, totalHourlyTokens);
   const persona = buildPersona(dayparts, totalHourlyTokens);
   const peakHour = buildPeakHour(hourlyPoints);
-  const models = buildModels(modelGroups);
-  const totalModelTokens = models.reduce((total, model) => total + model.totalTokens, 0);
   const weekdays = buildWeekdays(dailyGroups, hourlyPoints);
 
   return {
+    ...modelMixOf(providers),
     coverageStart,
     coverageEnd,
     coverageDays: coverageStart && coverageEnd ? inclusiveDayCount(coverageStart, coverageEnd) : 0,
@@ -160,9 +217,6 @@ export function buildUsageInsights(snapshot: DashboardSnapshot, scope: ProviderS
     peakHour,
     persona,
     dayparts,
-    models,
-    totalModelTokens,
-    topModel: models.find((model) => model.id !== "other") ?? null,
     weekdays,
     busiestWeekday: maxByTokens(weekdays)
   };
@@ -224,12 +278,17 @@ function buildPeakHour(points: HourlyPoint[]): number | null {
   return peakHour;
 }
 
-function buildModels(groups: Map<string, ModelGroup>): ModelInsight[] {
+function buildModels(groups: Map<string, ModelGroup>): {
+  models: ModelInsight[];
+  modelProviders: ModelProviderInsight[];
+} {
   const allModels = [...groups.values()].map((group) => ({
     id: group.id,
     label: group.label,
-    providerNames: [...group.providerNames].sort((left, right) => left.localeCompare(right)),
-    ...sumUsageTotals(group.totals)
+    byProvider: new Map(
+      [...group.byProvider].map(([name, totals]) => [name, sumUsageTotals(totals).totalTokens])
+    ),
+    ...sumUsageTotals([...group.byProvider.values()].flat())
   })).filter((model) => model.totalTokens > 0)
     .sort((left, right) => right.totalTokens - left.totalTokens);
   const totalTokens = allModels.reduce((total, model) => total + model.totalTokens, 0);
@@ -240,11 +299,45 @@ function buildModels(groups: Map<string, ModelGroup>): ModelInsight[] {
     {
       id: "other",
       label: "Other models",
-      providerNames: [...new Set(remainder.flatMap((model) => model.providerNames))].sort((left, right) => left.localeCompare(right)),
+      byProvider: mergeProviderTokens(remainder.map((model) => model.byProvider)),
       ...sumUsageTotals(remainder)
     }
   ];
-  return rows.map((model) => ({ ...model, share: percentage(model.totalTokens, totalTokens) }));
+  // Each provider's own volume is the denominator for its model shares, so one
+  // busy tool cannot flatten the profile of a quieter one on the radar.
+  const providerTotals = mergeProviderTokens(allModels.map((model) => model.byProvider));
+  const modelProviders = [...providerTotals]
+    .map(([name, providerTokens]) => ({ name, totalTokens: providerTokens }))
+    .sort((left, right) => right.totalTokens - left.totalTokens);
+
+  return {
+    models: rows.map(({ byProvider, ...model }) => {
+      const providers = [...byProvider]
+        .map((entry) => ({
+          name: entry[0],
+          totalTokens: entry[1],
+          share: percentage(entry[1], providerTotals.get(entry[0]) ?? 0)
+        }))
+        .sort((left, right) => right.totalTokens - left.totalTokens);
+      return {
+        ...model,
+        providerNames: providers
+          .map((provider) => provider.name)
+          .sort((left, right) => left.localeCompare(right)),
+        providers,
+        share: percentage(model.totalTokens, totalTokens)
+      };
+    }),
+    modelProviders
+  };
+}
+
+function mergeProviderTokens(maps: Map<string, number>[]): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const map of maps) {
+    for (const [name, tokens] of map) merged.set(name, (merged.get(name) ?? 0) + tokens);
+  }
+  return merged;
 }
 
 function buildWeekdays(dailyGroups: Map<string, TotalsGroup>, hourlyPoints: HourlyPoint[]): WeekdayInsight[] {

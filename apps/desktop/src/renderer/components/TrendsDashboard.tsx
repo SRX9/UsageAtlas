@@ -16,10 +16,10 @@ import {
   previousPeriod,
   tokenComposition
 } from "../personal-analytics";
+import { buildModelMix } from "../usage-insights";
 import { ComparisonToggle } from "./TrendControls";
-import { AnalyzerNotice, type PageNotice } from "./UsagePageState";
 import { ProviderScopeSelect, TimeNavigator } from "./AnalyzerControls";
-import { ProviderDonut, SeriesChart, StatTile, TokenMixChart } from "./HeroMetrics";
+import { ModelMixCard, ProviderDonut, SeriesChart, StatTile, TokenMixChart } from "./HeroMetrics";
 
 interface TrendsDashboardProps {
   snapshot: DashboardSnapshot;
@@ -28,7 +28,6 @@ interface TrendsDashboardProps {
   today: string;
   providerScope: ProviderScope;
   refreshing: boolean;
-  notice: PageNotice | null;
   onRangeChange(range: AnalyticsRange): void;
   onEndDayChange(day: string): void;
   onOpenDay(day: string): void;
@@ -43,7 +42,6 @@ export function TrendsDashboard({
   today,
   providerScope,
   refreshing,
-  notice,
   onRangeChange,
   onEndDayChange,
   onOpenDay,
@@ -96,8 +94,6 @@ export function TrendsDashboard({
           </Tooltip>
         </div>
       </div>
-
-      {notice ? <AnalyzerNotice {...notice} /> : null}
 
       <header className="atlas-page-header">
         <p className="atlas-kicker">Collected history</p>
@@ -158,13 +154,21 @@ export function TrendsDashboard({
         <Card variant="transparent">
           <Card.Header><Card.Title>How tokens were used</Card.Title><Card.Description>Composition across the selected period</Card.Description></Card.Header>
           <Card.Content className="space-y-6">
-            <TokenMixChart composition={tokenComposition(period.totals)} />
+            <TokenMixChart composition={tokenComposition(period.totals)} providers={period.providerRows} />
             <div className="grid gap-3 sm:grid-cols-2">
               <Card variant="secondary"><Card.Content className="p-4"><span className="text-xs text-muted">Average per covered day</span><strong className="mt-2 block text-xl">{formatTokens(period.totals.totalTokens / divisor)}</strong></Card.Content></Card>
               <Card variant="secondary"><Card.Content className="p-4"><span className="text-xs text-muted">Requests per covered day</span><strong className="mt-2 block text-xl">{formatCompactNumber(period.totals.requests / divisor)}</strong></Card.Content></Card>
             </div>
           </Card.Content>
         </Card>
+      </section>
+
+      <section className="atlas-section" aria-label="Model mix">
+        <ModelMixCard
+          description="Which models carried the selected period"
+          emptyMessage="No model totals were recorded in this range."
+          mix={buildModelMix(snapshot, providerScope, { endDay: period.endDay, startDay: period.startDay })}
+        />
       </section>
 
       <p className="atlas-footnote">Coverage note: empty space outside collected source history is unavailable data, not zero usage.</p>

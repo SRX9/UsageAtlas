@@ -39,6 +39,11 @@ describe("local usage analytics", () => {
     expect(analytics.hourly).toHaveLength(1);
     expect(analytics.hourly?.[0]).toMatchObject({ totalTokens: 1330, requests: 2 });
     expect(analytics.models.map((model) => model.id)).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
+    // Day-scoped views split the same totals by model, so the per-day rows have to add
+    // back up to the whole-coverage ones.
+    expect(analytics.dailyModels.map((row) => [row.date, row.id, row.totalTokens])).toEqual(
+      analytics.models.map((model) => ["2026-07-17", model.id, model.totalTokens])
+    );
     expect(analytics.projects[0]?.label).toBe("sample-project");
     expect(analytics.sessions[0]?.id).toBe("codex-session-fixture");
     expect(analytics.serviceTiers.map((tier) => tier.id).sort()).toEqual(["priority", "standard"]);

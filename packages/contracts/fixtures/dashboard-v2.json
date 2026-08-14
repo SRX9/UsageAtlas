@@ -135,6 +135,34 @@
             "unpricedTokens": 0
           }
         ],
+        "dailyModels": [
+          {
+            "date": "2026-07-16",
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "inputTokens": 700,
+            "cachedInputTokens": 200,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 180,
+            "totalTokens": 1080,
+            "requests": 2,
+            "estimatedCostUSD": 0.0034,
+            "unpricedTokens": 0
+          },
+          {
+            "date": "2026-07-17",
+            "id": "gpt-5.6-sol",
+            "label": "gpt-5.6-sol",
+            "inputTokens": 400,
+            "cachedInputTokens": 200,
+            "cacheCreationInputTokens": 0,
+            "outputTokens": 120,
+            "totalTokens": 720,
+            "requests": 1,
+            "estimatedCostUSD": 0.0022,
+            "unpricedTokens": 0
+          }
+        ],
         "projects": [
           {
             "id": "project-a",

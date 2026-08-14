@@ -3,6 +3,7 @@ import type {
   ProviderFailure,
   UsageBreakdown,
   UsageDailyMetric,
+  UsageDailyModelMetric,
   UsageHourlyMetric,
   UsageProjectBreakdown,
   UsageSessionBreakdown,
@@ -115,6 +116,8 @@ const DEFAULT_MAX_FILES = 5_000;
 const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const MAX_PROJECTS = 200;
 const MAX_SESSIONS = 250;
+/** Model × day rows, trimmed smallest-first so the busiest models keep every day. */
+const MAX_DAILY_MODELS = 5_000;
 const SKIPPED_DIRECTORIES = new Set([".git", ".build", "build", "DerivedData", "node_modules", "outputs", "target"]);
 
 export class LocalUsageScanner implements AnalyticsScanner {
@@ -277,6 +280,7 @@ export function unavailableAnalytics(
     daily: [],
     hourly: [],
     models: [],
+    dailyModels: [],
     projects: [],
     sessions: [],
     serviceTiers: [],
@@ -633,6 +637,7 @@ export function buildAnalytics(
   const days = new Map<string, MutableBreakdown>();
   const hours = new Map<string, MutableBreakdown>();
   const models = new Map<string, MutableBreakdown>();
+  const modelDays = new Map<string, MutableBreakdown>();
   const projects = new Map<string, MutableProject>();
   const sessions = new Map<string, MutableSession>();
   const serviceTiers = new Map<string, MutableBreakdown>();
@@ -643,6 +648,7 @@ export function buildAnalytics(
     const hourKey = `${record.day}T${String(new Date(record.timestamp).getHours()).padStart(2, "0")}`;
     addBreakdown(hours, hourKey, hourKey, record);
     addBreakdown(models, record.model, record.model, record);
+    addBreakdown(modelDays, `${record.day} ${record.model}`, record.model, record);
     addBreakdown(serviceTiers, record.serviceTier, titleCase(record.serviceTier), record);
 
     const projectID = record.projectPath ?? record.projectLabel;
@@ -685,6 +691,18 @@ export function buildAnalytics(
       hour: Number(key.slice(11)),
       ...finalizeTotals(value.totals, partial)
     }));
+  // Trimmed by size rather than by date so a busy model keeps its whole history when
+  // the cap bites; the day- and range-scoped model mixes read from these rows.
+  const dailyModels: UsageDailyModelMetric[] = [...modelDays.entries()]
+    .map(([key, value]) => ({
+      date: key.slice(0, 10),
+      id: value.label,
+      label: value.label,
+      ...finalizeTotals(value.totals, partial)
+    }))
+    .sort(compareUsage)
+    .slice(0, MAX_DAILY_MODELS)
+    .sort((left, right) => left.date.localeCompare(right.date) || compareUsage(left, right));
   const projectRows: UsageProjectBreakdown[] = [...projects.entries()]
     .map(([id, value]) => ({
       id,
@@ -723,6 +741,7 @@ export function buildAnalytics(
     daily,
     hourly,
     models: finalizeBreakdowns(models, 200, partial),
+    dailyModels,
     projects: projectRows,
     sessions: sessionRows,
     serviceTiers: finalizeBreakdowns(serviceTiers, 10, partial),

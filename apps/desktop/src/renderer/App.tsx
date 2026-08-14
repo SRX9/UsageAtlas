@@ -8,13 +8,13 @@ import type {
 } from "../shared/desktop-api";
 import { AppShell } from "./components/AppShell";
 import { DayDashboard } from "./components/DayDashboard";
+import type { HealthNotice } from "./components/Diagnostics";
 import { Diagnostics } from "./components/Diagnostics";
 import { InsightsDashboard } from "./components/InsightsDashboard";
 import { LimitsDashboard } from "./components/LimitsDashboard";
 import { Settings } from "./components/Settings";
 import { TrendsDashboard } from "./components/TrendsDashboard";
 import { UsageAlertsPage } from "./components/UsageAlertsPage";
-import type { PageNotice } from "./components/UsagePageState";
 import { UsageEmpty, UsageFailure, UsageLoading } from "./components/UsagePageState";
 import { isSnapshotStale } from "./dashboard-model";
 import type { AnalyticsRange, ProviderScope } from "./personal-analytics";
@@ -34,7 +34,7 @@ export function App(): React.JSX.Element {
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
+  const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState(() => todayDay());
   const [trendEndDay, setTrendEndDay] = useState(() => todayDay());
   const [trendRange, setTrendRange] = useState<AnalyticsRange>(30);
@@ -163,18 +163,21 @@ export function App(): React.JSX.Element {
   const today = todayDay();
   const usageRoute = route === "day" || route === "trends" || route === "insights" || route === "limits";
   const providerAnalyticsIssue = snapshot ? analyticsIssue(snapshot, providerScope) : null;
-  const message = error ?? providerAnalyticsIssue?.message ?? (snapshot && isSnapshotStale(snapshot)
-    ? "This snapshot is older than its refresh window. Check now for current usage."
-    : null);
-  // Dismissal is keyed on the wording, so a different problem always breaks through.
-  const notice: PageNotice | null = message === null || message === dismissedNotice
-    ? null
-    : {
-      message,
-      detail: error ? null : providerAnalyticsIssue?.detail ?? null,
-      tone: error ? "error" : providerAnalyticsIssue?.tone ?? "stale",
-      onDismiss: () => setDismissedNotice(message)
-    };
+  // Usage pages stay uninterrupted; everything worth knowing about the numbers is
+  // collected here for Engine health, with the rail dot as the only nudge. Dismissal is
+  // keyed on the wording, so a different problem always breaks through.
+  const notices: HealthNotice[] = [
+    error ? { message: error, detail: null, tone: "error" as const } : null,
+    providerAnalyticsIssue,
+    snapshot && isSnapshotStale(snapshot)
+      ? {
+        message: "This snapshot is older than its refresh window.",
+        detail: "Refresh from any usage page to collect current numbers.",
+        tone: "stale" as const
+      }
+      : null
+  ].filter((notice): notice is HealthNotice => notice !== null
+    && !dismissedNotices.includes(notice.message));
 
   function selectDay(day: string): void {
     setSelectedDay(day > today ? today : day);
@@ -198,7 +201,6 @@ export function App(): React.JSX.Element {
       return (
         <DayDashboard
           limitOrder={preferences?.limitOrder ?? []}
-          notice={notice}
           onOpenLimits={() => navigate("limits")}
           onProviderScopeChange={setProviderScope}
           onRefresh={refreshAll}
@@ -216,7 +218,6 @@ export function App(): React.JSX.Element {
       return (
         <TrendsDashboard
           endDay={trendEndDay}
-          notice={notice}
           onEndDayChange={setTrendEndDay}
           onOpenDay={selectDay}
           onProviderScopeChange={setProviderScope}
@@ -233,7 +234,6 @@ export function App(): React.JSX.Element {
     if (route === "insights") {
       return (
         <InsightsDashboard
-          notice={notice}
           onProviderScopeChange={setProviderScope}
           onRefresh={refreshAll}
           providerScope={providerScope}
@@ -246,7 +246,6 @@ export function App(): React.JSX.Element {
       return (
         <LimitsDashboard
           limitOrder={preferences?.limitOrder ?? []}
-          notice={notice}
           onBack={() => navigate("day")}
           onLimitOrderChange={(limitOrder) => updatePreferences({ limitOrder })}
           onRefresh={refreshAll}
@@ -261,7 +260,7 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <AppShell engineStatus={engineStatus} onNavigate={navigate} route={route}>
+    <AppShell engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate} route={route}>
       {renderUsageRoute()}
       {route === "alerts" && (
         <UsageAlertsPage
@@ -289,6 +288,8 @@ export function App(): React.JSX.Element {
         <Diagnostics
           diagnostics={diagnostics}
           loading={diagnosticsLoading}
+          notices={notices}
+          onDismissNotice={(message) => setDismissedNotices((current) => [...current, message])}
           onOpenExternal={openExternal}
           onReload={loadDiagnostics}
           providers={snapshot?.providers ?? []}

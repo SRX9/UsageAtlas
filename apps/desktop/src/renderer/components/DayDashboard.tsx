@@ -14,13 +14,14 @@ import {
 } from "../personal-analytics";
 import { formatCompactNumber, formatCost, formatExactTokens } from "../number-format";
 import { RefreshIcon } from "../icons";
-import { AnalyzerNotice, type PageNotice } from "./UsagePageState";
 import { ProviderScopeSelect, TimeNavigator } from "./AnalyzerControls";
 import { LimitsPreviewCard } from "./CapacityMeters";
 import { ProviderLogo } from "./ProviderLogo";
 import { TrendChip } from "./UsagePrimitives";
+import { buildModelMix } from "../usage-insights";
 import {
   ActivityComposedChart,
+  ModelMixCard,
   ProviderDonut,
   StatTile,
   TokenMixChart
@@ -33,7 +34,6 @@ interface DayDashboardProps {
   providerScope: ProviderScope;
   limitOrder: string[];
   refreshing: boolean;
-  notice: PageNotice | null;
   onSelectDay(day: string): void;
   onSelectRange(range: AnalyticsRange): void;
   onProviderScopeChange(scope: ProviderScope): void;
@@ -48,7 +48,6 @@ export function DayDashboard({
   providerScope,
   limitOrder,
   refreshing,
-  notice,
   onSelectDay,
   onSelectRange,
   onProviderScopeChange,
@@ -96,8 +95,6 @@ export function DayDashboard({
           </Tooltip>
         </div>
       </div>
-
-      {notice ? <AnalyzerNotice {...notice} /> : null}
 
       <header className="atlas-hero-grid">
         <Card className="atlas-primary-card" variant="transparent">
@@ -167,7 +164,6 @@ export function DayDashboard({
         />
       </section>
 
-
       <section className="atlas-section" aria-labelledby="day-rhythm-heading">
         <div className="atlas-section-heading">
           <div><p className="atlas-kicker">Selected date</p><h2 id="day-rhythm-heading">Usage through the day</h2></div>
@@ -184,11 +180,19 @@ export function DayDashboard({
           <Card.Content><ProviderDonut rows={period.providerRows} /></Card.Content>
         </Card>
         <Card variant="transparent">
-          <Card.Header><Card.Title>Token mix</Card.Title><Card.Description>How the selected day was composed</Card.Description></Card.Header>
+          <Card.Header><Card.Title>Token mix</Card.Title><Card.Description>How each tool&apos;s day was composed</Card.Description></Card.Header>
           <Card.Content>
-            <TokenMixChart composition={tokenComposition(period.totals)} />
+            <TokenMixChart composition={tokenComposition(period.totals)} providers={period.providerRows} />
           </Card.Content>
         </Card>
+      </section>
+
+      <section className="atlas-section" aria-label="Model mix">
+        <ModelMixCard
+          description={`Which models carried ${longDay(selectedDay)}`}
+          emptyMessage="No model totals were recorded on this day."
+          mix={buildModelMix(snapshot, providerScope, { endDay: selectedDay, startDay: selectedDay })}
+        />
       </section>
     </div>
   );
