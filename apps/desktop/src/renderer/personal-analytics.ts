@@ -45,7 +45,7 @@ export interface AnalyticsIssue {
   message: string;
   /** Why the history is incomplete and what to do about it, straight from the scanner. */
   detail: string | null;
-  tone: "stale" | "error";
+  tone: "warning" | "error";
 }
 
 export interface UsageBaseline {
@@ -262,7 +262,7 @@ export function analyticsIssue(snapshot: DashboardSnapshot, scope: ProviderScope
     return {
       message: `${joinNames(partial.map((provider) => provider.name))} usage history is partial. Token totals may be incomplete, and cost is hidden.`,
       detail: analyticsDetail(partial),
-      tone: "stale"
+      tone: "warning"
     };
   }
   return null;

@@ -2,7 +2,8 @@ import type { DashboardProvider } from "@usageatlas/contracts";
 import { Button, Card, Skeleton, Spinner, Switch } from "@heroui/react";
 import { DESKTOP_VERSION } from "../../shared/version";
 import type { DesktopPreferences } from "../../shared/desktop-api";
-import { ExternalIcon } from "../icons";
+import { ExternalIcon, RefreshIcon } from "../icons";
+import { providerConnection, type ProviderConnection } from "../provider-connection";
 import { ProviderLogo } from "./ProviderLogo";
 
 interface SettingsProps {
@@ -13,8 +14,10 @@ interface SettingsProps {
   onUpdate(patch: Partial<DesktopPreferences>): Promise<void>;
   onChooseCustomBackground(): Promise<void>;
   onOpenExternal(url: string): Promise<void>;
+  onRefresh(): Promise<void>;
   providers: DashboardProvider[];
   providerSaving: string | null;
+  refreshing: boolean;
   onSetProviderEnabled(providerID: string, enabled: boolean): Promise<void>;
 }
 
@@ -26,10 +29,19 @@ export function Settings({
   onUpdate,
   onChooseCustomBackground,
   onOpenExternal,
+  onRefresh,
   providers,
   providerSaving,
+  refreshing,
   onSetProviderEnabled,
 }: SettingsProps): React.JSX.Element {
+  const sources = providers.map((provider) => ({
+    provider,
+    connection: providerConnection(provider),
+  }));
+  const needsReconnect = sources.some(
+    ({ connection }) => connection.needsAttention,
+  );
   return (
     <div className="atlas-page atlas-page--narrow">
       <header className="atlas-page-header flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -169,15 +181,16 @@ export function Settings({
             <Card.Header>
               <Card.Title>Sources</Card.Title>
               <Card.Description>
-                Choose which AI tools appear in your analytics.
+                Choose which AI tools appear in your analytics. A tool that needs
+                a new sign-in is flagged here until you reconnect it.
               </Card.Description>
             </Card.Header>
             <Card.Content className="atlas-settings-list mt-2">
-              {providers.length ? (
-                providers.map((provider) => (
+              {sources.length ? (
+                sources.map(({ provider, connection }) => (
                   <SettingRow
                     checked={provider.enabled}
-                    description={providerDescription(provider)}
+                    description={<ConnectionCopy connection={connection} />}
                     disabled={providerSaving === provider.id}
                     key={provider.id}
                     label={provider.name}
@@ -191,6 +204,16 @@ export function Settings({
                     onChange={(enabled) =>
                       onSetProviderEnabled(provider.id, enabled)
                     }
+                    status={
+                      connection.needsAttention ? (
+                        <span
+                          className="atlas-source-pill"
+                          data-connection={connection.state}
+                        >
+                          {connection.label}
+                        </span>
+                      ) : null
+                    }
                   />
                 ))
               ) : (
@@ -198,6 +221,20 @@ export function Settings({
                   No supported sources were detected yet.
                 </p>
               )}
+              {needsReconnect ? (
+                <div className="atlas-source-recheck">
+                  <Button
+                    isPending={refreshing}
+                    onPress={() => void onRefresh()}
+                    variant="outline"
+                  >
+                    <span>Check sources again</span>
+                    <RefreshIcon
+                      className={`size-4${refreshing ? " animate-spin" : ""}`}
+                    />
+                  </Button>
+                </div>
+              ) : null}
             </Card.Content>
           </Card>
 
@@ -248,13 +285,15 @@ function SettingRow({
   checked,
   disabled = false,
   leading,
+  status,
   onChange,
 }: {
   label: string;
-  description: string;
+  description: React.ReactNode;
   checked: boolean;
   disabled?: boolean;
   leading?: React.ReactNode;
+  status?: React.ReactNode;
   onChange(value: boolean): Promise<void>;
 }): React.JSX.Element {
   return (
@@ -262,9 +301,12 @@ function SettingRow({
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {leading}
         <div className="min-w-0">
-          <strong className="text-sm font-medium text-foreground">
-            {label}
-          </strong>
+          <span className="atlas-setting-row__heading">
+            <strong className="text-sm font-medium text-foreground">
+              {label}
+            </strong>
+            {status}
+          </span>
           <p className="mt-1 text-xs text-muted">{description}</p>
         </div>
       </div>
@@ -284,19 +326,21 @@ function SettingRow({
   );
 }
 
-function providerDescription(provider: DashboardProvider): string {
-  if (!provider.enabled) return "Disabled. Enable to check this provider.";
-  if (provider.error?.code === "auth_required")
-    return "Sign in again, then refresh.";
-  if (provider.error?.code === "credentials_missing")
-    return "Not detected on this computer yet.";
-  if (provider.source === "cursor_app")
-    return provider.analytics
-      ? "Connected through Cursor with detailed dashboard history."
-      : "Connected through the Cursor desktop app.";
-  if (provider.source === "opencode_local_estimate")
-    return "OpenCode Go with local quota estimates.";
-  if (provider.id === "opencode" && provider.analytics)
-    return "Reading local OpenCode activity.";
-  return provider.identity?.plan ?? "Usage monitoring available";
+/** The state of a source in one line, with the reconnect step when there is one. */
+function ConnectionCopy({
+  connection,
+}: {
+  connection: ProviderConnection;
+}): React.JSX.Element {
+  return (
+    <>
+      {connection.summary}
+      {connection.action ? (
+        <span className="atlas-source-action"> {connection.action}</span>
+      ) : null}
+      {connection.command ? (
+        <code className="atlas-command">{connection.command}</code>
+      ) : null}
+    </>
+  );
 }

@@ -19,6 +19,7 @@ import { UsageEmpty, UsageFailure, UsageLoading } from "./components/UsagePageSt
 import { isSnapshotStale } from "./dashboard-model";
 import type { AnalyticsRange, ProviderScope } from "./personal-analytics";
 import { analyticsIssue, enabledProviders, todayDay } from "./personal-analytics";
+import { providerConnection, reconnectSentence } from "./provider-connection";
 
 export function App(): React.JSX.Element {
   const [route, setRoute] = useState<AppRoute>(() => routeFromHash(location.hash));
@@ -168,12 +169,13 @@ export function App(): React.JSX.Element {
   // keyed on the wording, so a different problem always breaks through.
   const notices: HealthNotice[] = [
     error ? { message: error, detail: null, tone: "error" as const } : null,
+    ...signInNotices(snapshot),
     providerAnalyticsIssue,
     snapshot && isSnapshotStale(snapshot)
       ? {
         message: "This snapshot is older than its refresh window.",
         detail: "Refresh from any usage page to collect current numbers.",
-        tone: "stale" as const
+        tone: "warning" as const
       }
       : null
   ].filter((notice): notice is HealthNotice => notice !== null
@@ -276,22 +278,26 @@ export function App(): React.JSX.Element {
           customBackgroundUrl={customBackgroundUrl}
           onChooseCustomBackground={chooseCustomBackground}
           onOpenExternal={openExternal}
+          onRefresh={refreshAll}
           onSetProviderEnabled={setProviderEnabled}
           onUpdate={updatePreferences}
           preferences={preferences}
           providerSaving={providerSaving}
           providers={snapshot?.providers ?? []}
+          refreshing={refreshing}
           saving={saving}
         />
       )}
       {route === "diagnostics" && (
         <Diagnostics
           diagnostics={diagnostics}
-          loading={diagnosticsLoading}
+          loading={diagnosticsLoading || refreshing}
           notices={notices}
           onDismissNotice={(message) => setDismissedNotices((current) => [...current, message])}
           onOpenExternal={openExternal}
-          onReload={loadDiagnostics}
+          // Reload is the button next to the source list, so it re-checks the sources
+          // themselves and not only the engine — that is what "then reload" asks for.
+          onReload={async () => { await Promise.all([loadDiagnostics(), refreshAll()]); }}
           providers={snapshot?.providers ?? []}
         />
       )}
@@ -301,6 +307,24 @@ export function App(): React.JSX.Element {
 
 async function openExternal(url: string): Promise<void> {
   await window.usageAtlas.openExternal(url);
+}
+
+/**
+ * A tool whose sign-in expired keeps counting local history while its live limits go
+ * quiet, so nothing on the usage pages says the connection dropped. Each signed-out tool
+ * raises its own notice, which is what tints the Diagnostics rail dot.
+ */
+function signInNotices(snapshot: DashboardSnapshot | null): HealthNotice[] {
+  if (!snapshot) return [];
+  return enabledProviders(snapshot).flatMap((provider) => {
+    const connection = providerConnection(provider);
+    if (connection.state !== "sign_in_required") return [];
+    return [{
+      message: `${provider.name} needs a new sign-in on this computer.`,
+      detail: reconnectSentence(connection),
+      tone: "warning" as const
+    }];
+  });
 }
 
 function backgroundImageErrorMessage(caught: unknown): string {

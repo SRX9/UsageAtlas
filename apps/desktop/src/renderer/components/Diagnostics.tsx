@@ -2,18 +2,19 @@ import type { DashboardProvider } from "@usageatlas/contracts";
 import type { EngineDiagnostics, EngineStatus } from "../../shared/desktop-api";
 import { Alert, Button, Card, Skeleton, Tooltip } from "@heroui/react";
 import { CloseIcon, ExternalIcon, RefreshIcon } from "../icons";
+import { providerConnection } from "../provider-connection";
 
 const REPOSITORY_URL = "https://github.com/SRX9/UsageAtlas";
 
 /**
- * Something the usage numbers should be read against — a partial history, a source
- * that failed, a snapshot past its refresh window. Usage pages stay clean; these are
- * listed here and flagged by the dot on the Diagnostics rail button.
+ * Something the usage numbers should be read against — a source that needs a new
+ * sign-in, a partial history, a snapshot past its refresh window. Usage pages stay
+ * clean; these are listed here and flagged by the dot on the Diagnostics rail button.
  */
 export interface HealthNotice {
   message: string;
   detail: string | null;
-  tone: "stale" | "error";
+  tone: "warning" | "error";
 }
 
 interface DiagnosticsProps {
@@ -88,7 +89,7 @@ export function Diagnostics({
                 >
                   <CloseIcon className="size-4" />
                 </Button>
-                <Tooltip.Content>Hide until it changes · the tool stays listed under History coverage</Tooltip.Content>
+                <Tooltip.Content>Hide until it changes · the tool stays listed under Sources</Tooltip.Content>
               </Tooltip>
             </Alert>
           ))}
@@ -97,10 +98,10 @@ export function Diagnostics({
 
       <Card className="mt-4" variant="transparent">
         <Card.Header>
-          <Card.Title>History coverage</Card.Title>
+          <Card.Title>Sources</Card.Title>
           <Card.Description>
-            What each enabled tool reported on the last scan. Anything worth knowing about the usage numbers is
-            reported here rather than on the usage pages.
+            How each enabled tool is signed in, and what history it reported on the last scan. Anything worth
+            knowing about the usage numbers is reported here rather than on the usage pages.
           </Card.Description>
         </Card.Header>
         <Card.Content>
@@ -108,17 +109,37 @@ export function Diagnostics({
             <p className="text-sm text-muted">No tools are enabled yet.</p>
           ) : (
             <ul className="atlas-coverage-list">
-              {reporting.map((provider) => (
-                <li className="atlas-coverage-row" key={provider.id}>
-                  <div className="min-w-0">
-                    <p className="atlas-coverage-row__name">{provider.name}</p>
-                    <p className="atlas-coverage-row__detail">{coverageDetail(provider)}</p>
-                  </div>
-                  <span className="atlas-coverage-row__status" data-status={provider.analytics?.status ?? "unavailable"}>
-                    {coverageLabel(provider)}
-                  </span>
-                </li>
-              ))}
+              {reporting.map((provider) => {
+                const connection = providerConnection(provider);
+                return (
+                  <li className="atlas-coverage-row" key={provider.id}>
+                    <div className="min-w-0">
+                      <p className="atlas-coverage-row__name">{provider.name}</p>
+                      {connection.state === "connected" ? null : (
+                        <p className="atlas-coverage-row__connection" data-connection={connection.state}>
+                          {connection.summary}
+                          {connection.action ? ` ${connection.action}` : null}
+                          {connection.command ? (
+                            <code className="atlas-command">{connection.command}</code>
+                          ) : null}
+                        </p>
+                      )}
+                      <p className="atlas-coverage-row__detail">{coverageDetail(provider)}</p>
+                    </div>
+                    <div className="atlas-coverage-row__badges">
+                      <span className="atlas-coverage-row__status" data-connection={connection.state}>
+                        {connection.label}
+                      </span>
+                      <span
+                        className="atlas-coverage-row__status"
+                        data-status={provider.analytics?.status ?? "unavailable"}
+                      >
+                        {coverageLabel(provider)}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card.Content>
@@ -152,7 +173,8 @@ function coverageLabel(provider: DashboardProvider): string {
 
 function coverageDetail(provider: DashboardProvider): string {
   const analytics = provider.analytics;
-  if (!analytics) return provider.error?.message ?? "This tool does not report a local usage history.";
+  // The sign-in line above already carries why a failing tool read nothing.
+  if (!analytics) return "No local usage history was read on the last scan.";
   if (analytics.error) return analytics.error.message;
   if (analytics.status === "no_data") return "No usage has been recorded yet.";
   return `${analytics.coverageStart} to ${analytics.coverageEnd} · ${analytics.filesScanned.toLocaleString("en-US")} files scanned`;

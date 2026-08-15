@@ -580,7 +580,31 @@
   text-wrap: pretty;
 }
 
-.atlas-coverage-row__status {
+/* A signed-out tool keeps reporting local history, so the sign-in reads as its own
+   line above the coverage it should not be confused with. */
+.atlas-coverage-row__connection {
+  max-width: 62ch;
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.atlas-coverage-row__connection[data-connection="sign_in_required"],
+.atlas-coverage-row__connection[data-connection="not_reporting"] {
+  color: var(--foreground);
+}
+
+.atlas-coverage-row__badges {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.atlas-coverage-row__status,
+.atlas-source-pill {
   flex: none;
   border-radius: 999px;
   padding: 3px 10px;
@@ -589,6 +613,7 @@
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .atlas-coverage-row__status[data-status="available"] {
@@ -604,6 +629,38 @@
 .atlas-coverage-row__status[data-status="unavailable"] {
   background: var(--danger-soft);
   color: var(--danger-soft-foreground);
+}
+
+.atlas-coverage-row__status[data-connection="connected"] {
+  background: var(--success-soft);
+  color: var(--success-soft-foreground);
+}
+
+.atlas-coverage-row__status[data-connection="sign_in_required"],
+.atlas-source-pill[data-connection="sign_in_required"] {
+  background: var(--warning-soft);
+  color: var(--warning-soft-foreground);
+}
+
+.atlas-coverage-row__status[data-connection="not_reporting"],
+.atlas-source-pill[data-connection="not_reporting"] {
+  background: var(--danger-soft);
+  color: var(--danger-soft-foreground);
+}
+
+/* The command that reconnects a source. Selectable, unlike the rest of the chrome,
+   so it can be copied into a terminal. */
+.atlas-command {
+  display: inline-block;
+  margin-inline-start: 6px;
+  border-radius: 6px;
+  padding: 1px 6px;
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 0.6875rem;
+  letter-spacing: -0.01em;
+  user-select: text;
 }
 
 .atlas-toolbar {
@@ -2374,6 +2431,27 @@
 }
 .atlas-setting-row + .atlas-setting-row {
   border-top: 1px solid var(--separator);
+}
+
+.atlas-setting-row__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The reconnect step reads louder than the state it follows, since it is the part
+   the user has to act on. */
+.atlas-source-action {
+  color: var(--foreground);
+}
+
+/* Only appears while a source is waiting to be reconnected, so signing in has an
+   obvious next step on this page too. */
+.atlas-source-recheck {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 12px 4px;
 }
 
 @media (max-width: 960px) {
