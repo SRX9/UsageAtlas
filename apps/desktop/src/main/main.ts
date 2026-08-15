@@ -328,7 +328,11 @@ function registerIPC(): void {
   ipcMain.handle(IPC.updatePreferences, (event, patch: unknown) => {
     assertTrustedSender(event);
     if (!isPreferencePatch(patch)) throw new Error("Invalid preferences update");
+    const previousAnalytics = preferences.get().anonymousAnalytics;
     const nextPreferences = preferences.update(patch);
+    if (previousAnalytics !== nextPreferences.anonymousAnalytics) {
+      telemetry.setEnabled(nextPreferences.anonymousAnalytics);
+    }
     updateTrayMenu();
     return nextPreferences;
   });
