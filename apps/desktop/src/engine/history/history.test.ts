@@ -580,21 +580,11 @@ describe("EngineService history integration", () => {
 });
 
 class PersistFailStore extends MemoryHistoryStore implements HistoryStore {
-  override upsertDraft(
-    _providerId: string,
-    _accountKey: string,
-    _localDay: string,
-    _payload: HistoryDayPayload
-  ): never {
+  override upsertDraft(): never {
     throw new Error("disk full");
   }
 
-  override sealDay(
-    _providerId: string,
-    _accountKey: string,
-    _localDay: string,
-    _payload: HistoryDayPayload
-  ): never {
+  override sealDay(): never {
     throw new Error("disk full");
   }
 }
