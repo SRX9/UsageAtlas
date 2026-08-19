@@ -75,11 +75,16 @@ async function refreshClaude(
   context: ProviderContext,
   options: ClaudeAdapterOptions,
   analyticsScanner: AnalyticsScanner
-): Promise<Omit<DashboardProvider, "id" | "name" | "enabled">> {
-  const analyticsPromise = scanProviderAnalytics(analyticsScanner, "claude", context);
+): Promise<Omit<DashboardProvider, "id" | "name" | "enabled"> & { accountKey?: string }> {
+  const historyDays = context.historyDaysForAccount("local");
+  const analyticsPromise = scanProviderAnalytics(analyticsScanner, "claude", {
+    signal: context.signal,
+    now: context.now,
+    historyDays
+  });
   try {
     const remote = await refreshClaudeQuota(context, options);
-    return { ...remote, analytics: await analyticsPromise };
+    return { ...remote, analytics: await analyticsPromise, accountKey: "local" };
   } catch (error) {
     return {
       source: "local_sessions",
@@ -88,7 +93,8 @@ async function refreshClaude(
       credits: null,
       analytics: await analyticsPromise,
       error: providerFailure(error, "Claude usage could not be refreshed."),
-      updatedAt: context.now.toISOString()
+      updatedAt: context.now.toISOString(),
+      accountKey: "local"
     };
   }
 }

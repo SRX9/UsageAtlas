@@ -68,7 +68,7 @@ export class OpenCodeUsageScanner {
     return await fileExists(this.locations.database) || await fileExists(this.locations.auth);
   }
 
-  async scan(context: { signal: AbortSignal; now: Date }): Promise<OpenCodeUsageSnapshot> {
+  async scan(context: { signal: AbortSignal; now: Date; historyDays?: number }): Promise<OpenCodeUsageSnapshot> {
     context.signal.throwIfAborted();
     if (!await fileExists(this.locations.database)) {
       throw new ProviderError(
@@ -76,6 +76,7 @@ export class OpenCodeUsageScanner {
         "OpenCode local data was not found. Run OpenCode once, then refresh."
       );
     }
+    const historyDays = clampInteger(context.historyDays ?? this.historyDays, 1, 366);
     const parsed = this.readRecords(context.signal);
     const hasGoAuth = await hasOpenCodeGoAuth(this.locations.auth);
     const hasGoPlan = hasGoAuth || parsed.records.some((record) => record.serviceTier === "opencode-go");
@@ -83,7 +84,7 @@ export class OpenCodeUsageScanner {
       analytics: buildAnalytics(
         parsed.records,
         context.now,
-        this.historyDays,
+        historyDays,
         1,
         parsed.partial
       ),

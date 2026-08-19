@@ -58,13 +58,16 @@ handling, and deterministic adapter tests.
 - Usage alerts that fire a native notification before you run into a limit
 - Tray presence, launch at login, and system/light/dark themes
 - Local-first: no account, no sync, and no usage data leaves the machine
+- Sealed local history: completed days are stored on disk so past usage survives restarts and provider outages
 - Sandboxed renderer with no Node.js access, an allowlisted preload API, ASAR integrity, and Electron fuses
 
 ## Privacy
 
-Provider data is read from local files and provider APIs, cached in memory, and written nowhere else. There is no
-UsageAtlas account and no cloud sync. An anonymous install count tells us how many people use the app; it never
-includes usage figures and can be switched off in Settings. Diagnostics are redacted before they are shown or copied.
+Provider data is read from local files and provider APIs. Completed-day usage and capacity
+snapshots are sealed into a local history database in the app data directory. There is no
+UsageAtlas account and no cloud sync. An anonymous install count tells us how many people use
+the app; it never includes usage figures and can be switched off in Settings. Diagnostics are
+redacted before they are shown or copied.
 
 ## Build from source
 

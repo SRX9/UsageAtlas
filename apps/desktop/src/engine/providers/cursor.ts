@@ -122,7 +122,7 @@ async function refreshCursor(
   databasePath: string,
   sqliteFactory: ReadonlySqliteFactory,
   options: CursorAdapterOptions
-): Promise<Omit<DashboardProvider, "id" | "name" | "enabled">> {
+): Promise<Omit<DashboardProvider, "id" | "name" | "enabled"> & { accountKey?: string }> {
   const credential = cursorCredential(databasePath, sqliteFactory, context.now);
   const cookie = `WorkosCursorSessionToken=${encodeURIComponent(`${credential.userID}::${credential.accessToken}`)}`;
   const headers = {
@@ -132,15 +132,16 @@ async function refreshCursor(
     Referer: "https://cursor.com/dashboard",
     "User-Agent": "UsageAtlas"
   };
+  const historyDays = context.historyDaysForAccount(credential.userID);
   const analyticsPromise = scanCursorUsageHistory(context, headers, {
     fetch: options.fetch,
-    historyDays: options.historyDays,
+    historyDays,
     maxEvents: options.maxEvents,
     pageSize: options.pageSize
   });
   try {
     const remote = await refreshCursorQuota(context, credential, headers, options.fetch);
-    return { ...remote, analytics: await analyticsPromise };
+    return { ...remote, analytics: await analyticsPromise, accountKey: credential.userID };
   } catch (error) {
     return {
       source: "cursor_app",
@@ -149,7 +150,8 @@ async function refreshCursor(
       credits: null,
       analytics: await analyticsPromise,
       error: providerFailure(error, "Cursor usage could not be refreshed."),
-      updatedAt: context.now.toISOString()
+      updatedAt: context.now.toISOString(),
+      accountKey: credential.userID
     };
   }
 }

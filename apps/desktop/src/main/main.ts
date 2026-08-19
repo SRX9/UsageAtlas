@@ -490,7 +490,10 @@ if (squirrelStartup) {
   preferences = new PreferenceStore();
   telemetry = new DesktopTelemetry(preferences);
   engine = new EngineManager(
-    () => new UtilityEngineTransport(path.join(__dirname, "engine-entry.js"))
+    () => new UtilityEngineTransport(
+      path.join(__dirname, "engine-entry.js"),
+      path.join(app.getPath("userData"), "history.sqlite")
+    )
   );
   engine.onStatus((status) => mainWindow?.webContents.send(IPC.engineStatus, status));
   await engine.applyProviderPreferences(preferences.get().providerEnabled);

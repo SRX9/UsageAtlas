@@ -8,13 +8,22 @@ const STARTUP_TIMEOUT_MS = 10_000;
 export class UtilityEngineTransport implements EngineTransport {
   private child: UtilityProcess | null = null;
 
-  constructor(private readonly entryPath: string) {}
+  constructor(
+    private readonly entryPath: string,
+    private readonly historyDatabasePath?: string
+  ) {}
 
   async start(handlers: EngineTransportHandlers): Promise<void> {
     if (this.child) return;
     const child = utilityProcess.fork(this.entryPath, [], {
       serviceName: "UsageAtlas Engine",
-      stdio: "pipe"
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        ...(this.historyDatabasePath
+          ? { USAGEATLAS_HISTORY_DB: this.historyDatabasePath }
+          : {})
+      }
     });
     this.child = child;
     await new Promise<void>((resolve, reject) => {

@@ -1643,15 +1643,45 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  padding-inline-start: 8px;
+  border-inline-start: 2px solid var(--atlas-series);
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 550;
 }
 
-.atlas-model-series__chip i {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
+.atlas-model-series__chip .atlas-provider-logo,
+.atlas-model-row > .atlas-provider-logo,
+.atlas-model-row > .atlas-provider-marks {
+  flex: 0 0 auto;
+}
+
+.atlas-provider-marks {
+  display: flex;
+  align-items: center;
+}
+
+.atlas-provider-marks .atlas-provider-logo {
+  z-index: 1;
+  background: var(--surface);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.atlas-provider-marks .atlas-provider-logo:nth-child(1) {
+  z-index: 4;
+}
+
+.atlas-provider-marks .atlas-provider-logo:nth-child(2) {
+  z-index: 3;
+}
+
+.atlas-provider-marks .atlas-provider-logo:nth-child(3) {
+  z-index: 2;
+}
+
+.atlas-provider-marks .atlas-provider-logo + .atlas-provider-logo {
+  margin-inline-start: -6px;
 }
 
 .atlas-model-row {
@@ -1660,12 +1690,6 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-}
-
-.atlas-model-row__swatch {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
 }
 
 .atlas-model-row > div {

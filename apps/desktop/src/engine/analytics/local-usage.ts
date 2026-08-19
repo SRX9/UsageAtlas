@@ -27,6 +27,7 @@ export type AnalyticsProvider = "codex" | "claude";
 export interface AnalyticsScanContext {
   signal: AbortSignal;
   now: Date;
+  historyDays?: number;
 }
 
 export interface AnalyticsScanner {
@@ -141,6 +142,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
 
   async scan(provider: AnalyticsProvider, context: AnalyticsScanContext): Promise<LocalUsageAnalytics> {
     context.signal.throwIfAborted();
+    const historyDays = clampInteger(context.historyDays ?? this.historyDays, 1, 366);
     const catalog = this.pricingCatalogLoader
       ? await this.pricingCatalogLoader(context).catch(() => emptyPricingCatalog())
       : emptyPricingCatalog();
@@ -177,7 +179,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
     await Promise.all(workers);
     context.signal.throwIfAborted();
     if (unreadableFiles > 0 && unreadableFiles === discovery.files.length) {
-      return unavailableAnalytics(context.now, this.historyDays, {
+      return unavailableAnalytics(context.now, historyDays, {
         code: "analytics_unavailable",
         message: "Local session analytics could not read the available logs.",
         retryable: true
@@ -196,7 +198,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
     return buildAnalytics(
       records,
       context.now,
-      this.historyDays,
+      historyDays,
       discovery.files.length,
       gapMessage !== null,
       "local_sessions",

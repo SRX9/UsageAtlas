@@ -12,7 +12,7 @@ export async function scanProviderAnalytics(
     return await scanner.scan(provider, context);
   } catch {
     if (context.signal.aborted) throw new DOMException("Analytics scan timed out.", "AbortError");
-    return unavailableAnalytics(context.now, 90, {
+    return unavailableAnalytics(context.now, context.historyDays ?? 90, {
       code: "analytics_unavailable",
       message: "Local session analytics could not be refreshed.",
       retryable: true

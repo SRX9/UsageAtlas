@@ -16,6 +16,15 @@ import { createProviderAdapters } from "./registry";
 const now = new Date("2023-11-14T22:13:20.000Z");
 const directories: string[] = [];
 
+function testContext(signal = new AbortController().signal) {
+  return {
+    signal,
+    now,
+    historyDays: 90,
+    historyDaysForAccount: () => 90
+  };
+}
+
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -60,7 +69,7 @@ describe("provider adapters", () => {
     const home = await createHome();
     const appServer = vi.fn(async () => codexFixture);
     const result = await createCodexAdapter({ homeDirectory: home, environment: {}, appServer })
-      .refresh({ signal: new AbortController().signal, now });
+      .refresh(testContext());
     expect(result.windows).toHaveLength(2);
     expect(appServer).toHaveBeenCalledOnce();
   });
@@ -77,7 +86,7 @@ describe("provider adapters", () => {
       environment: { CLAUDE_CODE_OAUTH_TOKEN: "claude-token" },
       homeDirectory: home,
       fetch: request
-    }).refresh({ signal: new AbortController().signal, now });
+    }).refresh(testContext());
     expect(result.windows).toHaveLength(2);
   });
 
@@ -108,9 +117,10 @@ describe("provider adapters", () => {
       fetch: request
     });
     expect(await adapter.isAvailable?.()).toBe(true);
-    const result = await adapter.refresh({ signal: new AbortController().signal, now });
+    const result = await adapter.refresh(testContext());
     expect(result.windows).toHaveLength(3);
     expect(result.source).toBe("cursor_app");
+    expect(result.accountKey).toBe("cursor-user");
     expect(result.analytics).toMatchObject({
       status: "available",
       source: "remote_usage",
@@ -139,7 +149,7 @@ describe("provider adapters", () => {
       throw new ProviderError("credentials_missing", "Codex CLI is not installed.");
     });
     const result = await createCodexAdapter({ homeDirectory: home, environment: {}, appServer })
-      .refresh({ signal: new AbortController().signal, now });
+      .refresh(testContext());
     expect(result.error?.code).toBe("credentials_missing");
     expect(result.analytics?.status).toBe("no_data");
   });

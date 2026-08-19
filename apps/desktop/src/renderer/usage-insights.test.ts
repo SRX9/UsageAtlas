@@ -95,14 +95,14 @@ describe("usage insights", () => {
     const insights = buildUsageInsights(multiProviderSnapshot, "all");
 
     expect(insights.modelProviders).toEqual([
-      { name: "Codex", totalTokens: 1800 },
-      { name: "Codex secondary", totalTokens: 600 }
+      { id: "codex", name: "Codex", totalTokens: 1800 },
+      { id: "codex-secondary", name: "Codex secondary", totalTokens: 600 }
     ]);
     // Each share is measured against that provider's own volume, so a quiet tool
     // still reads as a full spoke on the radar.
     expect(insights.topModel?.providers).toEqual([
-      { name: "Codex", totalTokens: 1800, share: 100 },
-      { name: "Codex secondary", totalTokens: 600, share: 100 }
+      { id: "codex", name: "Codex", totalTokens: 1800, share: 100 },
+      { id: "codex-secondary", name: "Codex secondary", totalTokens: 600, share: 100 }
     ]);
   });
 });

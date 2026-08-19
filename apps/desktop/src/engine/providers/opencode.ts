@@ -22,8 +22,13 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): Pro
 async function refreshOpenCode(
   context: ProviderContext,
   usageScanner: OpenCodeUsageScanner
-): Promise<Omit<DashboardProvider, "id" | "name" | "enabled">> {
-  const snapshot = await usageScanner.scan(context);
+): Promise<Omit<DashboardProvider, "id" | "name" | "enabled"> & { accountKey?: string }> {
+  const historyDays = context.historyDaysForAccount("local");
+  const snapshot = await usageScanner.scan({
+    signal: context.signal,
+    now: context.now,
+    historyDays
+  });
   return {
     source: snapshot.hasGoPlan ? "opencode_local_estimate" : "local_sessions",
     windows: snapshot.windows,
@@ -31,6 +36,7 @@ async function refreshOpenCode(
     credits: null,
     analytics: snapshot.analytics,
     error: null,
-    updatedAt: context.now.toISOString()
+    updatedAt: context.now.toISOString(),
+    accountKey: "local"
   };
 }

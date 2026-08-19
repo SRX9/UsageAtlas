@@ -111,3 +111,41 @@ export interface DashboardSnapshot {
   host: Record<string, JsonValue>;
   providers: DashboardProvider[];
 }
+
+/** Default login key when a provider has no stable account id (device-local logs). */
+export const HISTORY_LOCAL_ACCOUNT_KEY = "local" as const;
+
+export const HISTORY_DAY_PAYLOAD_VERSION = 1 as const;
+
+/** One provider-login's usage and capacity for one local calendar day. Sync unit. */
+export interface HistoryDayPayload {
+  payloadVersion: typeof HISTORY_DAY_PAYLOAD_VERSION;
+  accountKey: string;
+  windows: DashboardWindow[];
+  identity: { plan?: string | null } | null;
+  credits: { remaining: number; unit: string } | null;
+  source: string;
+  capturedAt: string;
+  status: LocalUsageStatus;
+  analyticsSource: LocalUsageAnalytics["source"];
+  totals: UsageTotals;
+  hourly: UsageHourlyMetric[];
+  models: UsageBreakdown[];
+  projects: UsageProjectBreakdown[];
+  sessions: UsageSessionBreakdown[];
+  serviceTiers: UsageBreakdown[];
+  filesScanned: number;
+  recordsProcessed: number;
+  error: ProviderFailure | null;
+}
+
+export interface HistoryDayRecord {
+  id: string;
+  providerId: string;
+  accountKey: string;
+  localDay: string;
+  sealed: boolean;
+  changeSeq: number;
+  updatedAt: string;
+  payload: HistoryDayPayload;
+}

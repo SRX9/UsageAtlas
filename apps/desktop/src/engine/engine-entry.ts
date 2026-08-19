@@ -1,4 +1,5 @@
 import { EngineService } from "./engine-service";
+import { MemoryHistoryStore, SqliteHistoryStore, type HistoryStore } from "./history";
 import {
   createEngineReadyMessage,
   EngineRequestError,
@@ -10,7 +11,8 @@ import { createProviderAdapters } from "./providers/registry";
 const port = process.parentPort;
 if (!port) throw new Error("Engine utility process parent port is unavailable");
 
-const engine = new EngineService(createProviderAdapters());
+const history = openHistoryStore(process.env.USAGEATLAS_HISTORY_DB);
+const engine = new EngineService(createProviderAdapters(), () => new Date(), history);
 let queue = Promise.resolve();
 
 port.on("message", (event) => {
@@ -38,6 +40,20 @@ port.on("message", (event) => {
 });
 
 port.postMessage(createEngineReadyMessage());
+
+function openHistoryStore(databasePath: string | undefined): HistoryStore {
+  if (!databasePath?.trim()) return new MemoryHistoryStore();
+  try {
+    return SqliteHistoryStore.open(databasePath.trim());
+  } catch (error) {
+    process.stderr.write(
+      `History store unavailable; continuing without persistence (${
+        error instanceof Error ? error.message : "open failed"
+      })\n`
+    );
+    return new MemoryHistoryStore();
+  }
+}
 
 function requestID(value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "invalid";

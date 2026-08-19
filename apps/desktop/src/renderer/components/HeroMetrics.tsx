@@ -18,7 +18,7 @@ import { Sparkline } from "./dither-kit/sparkline";
 import { Tooltip } from "./dither-kit/tooltip";
 import { XAxis } from "./dither-kit/x-axis";
 import { YAxis } from "./dither-kit/y-axis";
-import { ProviderLogo } from "./ProviderLogo";
+import { ProviderLogo, ProviderMarks } from "./ProviderLogo";
 import { KPI, TrendChip } from "./UsagePrimitives";
 
 const chartPalette: DitherColor[] = ["green", "blue", "purple", "orange", "pink", "red"];
@@ -189,7 +189,7 @@ export function ProviderDonut({ rows }: { rows: ProviderPeriodUsage[] }): React.
           <div className="atlas-provider-row" key={row.id}>
             <ProviderLogo compact providerID={row.id} providerName={row.name} />
             <div className="atlas-provider-copy">
-              <p className="atlas-provider-name"><span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: ditherColor(row.color) }} />{row.name}</p>
+              <p className="atlas-provider-name">{row.name}</p>
               <p className="text-xs text-muted">{Math.round((row.value / total) * 100)}% of load</p>
             </div>
             <div className="atlas-provider-value" title={formatExactTokens(row.value)}>
@@ -288,7 +288,7 @@ export function ModelMixCard({
 }): React.JSX.Element {
   const providerColors = new Map<string, DitherColor>(
     mix.modelProviders.map((provider, index) => [
-      provider.name,
+      provider.id,
       chartPalette[index % chartPalette.length] ?? "grey"
     ])
   );
@@ -296,19 +296,19 @@ export function ModelMixCard({
   const spokes = mix.models.filter((model) => model.id !== "other");
   // A tool whose models all landed in that bucket would draw a dot at the centre.
   const series = mix.modelProviders.filter((provider) =>
-    spokes.some((model) => modelProviderRow(model, provider.name)?.totalTokens)
+    spokes.some((model) => modelProviderRow(model, provider.id)?.totalTokens)
   );
   const config = Object.fromEntries(
     series.map((provider) => [
-      provider.name,
-      { color: providerColors.get(provider.name) ?? "grey", label: provider.name }
+      provider.id,
+      { color: providerColors.get(provider.id) ?? "grey", label: provider.name }
     ])
   ) as ChartConfig;
   const radarData = spokes.map((model) => ({
     model: shortModelLabel(model.label),
     ...Object.fromEntries(series.map((provider) => [
-      provider.name,
-      modelProviderRow(model, provider.name)?.share ?? 0
+      provider.id,
+      modelProviderRow(model, provider.id)?.share ?? 0
     ]))
   }));
   // Three spokes is the least that still draws an area rather than a line.
@@ -340,7 +340,7 @@ export function ModelMixCard({
                   nameKey="model"
                 >
                   {series.map((provider) => (
-                    <Radar dataKey={provider.name} key={provider.name} variant="gradient" />
+                    <Radar dataKey={provider.id} key={provider.id} variant="gradient" />
                   ))}
                   <Tooltip
                     valueFormatter={(value, name, index) => {
@@ -357,11 +357,12 @@ export function ModelMixCard({
               {chartable ? (
                 <div className="atlas-model-series">
                   {series.map((provider) => (
-                    <span className="atlas-model-series__chip" key={provider.name}>
-                      <i
-                        aria-hidden="true"
-                        style={{ backgroundColor: ditherColor(providerColors.get(provider.name) ?? "grey") }}
-                      />
+                    <span
+                      className="atlas-model-series__chip"
+                      key={provider.id}
+                      style={{ "--atlas-series": ditherColor(providerColors.get(provider.id) ?? "grey") } as React.CSSProperties}
+                    >
+                      <ProviderLogo mark providerID={provider.id} providerName={provider.name} />
                       {provider.name}
                     </span>
                   ))}
@@ -369,13 +370,7 @@ export function ModelMixCard({
               ) : null}
               {mix.models.map((model) => (
                 <div className="atlas-model-row" key={`${model.id}-${model.label}`}>
-                  <span
-                    aria-hidden="true"
-                    className="atlas-model-row__swatch"
-                    style={{
-                      backgroundColor: ditherColor(providerColors.get(model.providers[0]?.name ?? "") ?? "grey")
-                    }}
-                  />
+                  <ProviderMarks providers={model.providers} />
                   <div>
                     <strong title={model.label}>{model.label}</strong>
                     <span>{model.providerNames.join(", ")}</span>
@@ -394,8 +389,8 @@ export function ModelMixCard({
   );
 }
 
-function modelProviderRow(model: ModelInsight, providerName: string): ModelProviderUsage | undefined {
-  return model.providers.find((row) => row.name === providerName);
+function modelProviderRow(model: ModelInsight, providerId: string): ModelProviderUsage | undefined {
+  return model.providers.find((row) => row.id === providerId);
 }
 
 /** Radar spokes get ~10px of mono type, so a model keeps only its distinctive part. */

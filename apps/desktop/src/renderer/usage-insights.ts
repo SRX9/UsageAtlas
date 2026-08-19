@@ -21,6 +21,7 @@ export interface DaypartInsight {
 }
 
 export interface ModelProviderUsage {
+  id: string;
   name: string;
   totalTokens: number;
   /** Percent of that provider's own model volume spent on this model. */
@@ -37,6 +38,7 @@ export interface ModelInsight extends UsageTotals {
 }
 
 export interface ModelProviderInsight {
+  id: string;
   name: string;
   totalTokens: number;
 }
@@ -139,7 +141,9 @@ function modelEntriesOf(
 
 function modelMixOf(providers: DashboardProvider[], days?: { startDay: string; endDay: string }): ModelMix {
   const groups = new Map<string, ModelGroup>();
+  const namesById = new Map<string, string>();
   for (const provider of providers) {
+    namesById.set(provider.id, provider.name);
     for (const entry of modelEntriesOf(provider, days)) {
       const key = entry.label.trim().toLocaleLowerCase();
       const group = groups.get(key) ?? {
@@ -147,14 +151,14 @@ function modelMixOf(providers: DashboardProvider[], days?: { startDay: string; e
         label: entry.label,
         byProvider: new Map<string, UsageTotals[]>()
       };
-      const forProvider = group.byProvider.get(provider.name) ?? [];
+      const forProvider = group.byProvider.get(provider.id) ?? [];
       forProvider.push(entry);
-      group.byProvider.set(provider.name, forProvider);
+      group.byProvider.set(provider.id, forProvider);
       groups.set(key, group);
     }
   }
 
-  const { models, modelProviders } = buildModels(groups);
+  const { models, modelProviders } = buildModels(groups, namesById);
   return {
     models,
     modelProviders,
@@ -278,7 +282,10 @@ function buildPeakHour(points: HourlyPoint[]): number | null {
   return peakHour;
 }
 
-function buildModels(groups: Map<string, ModelGroup>): {
+function buildModels(
+  groups: Map<string, ModelGroup>,
+  namesById: Map<string, string>
+): {
   models: ModelInsight[];
   modelProviders: ModelProviderInsight[];
 } {
@@ -286,7 +293,7 @@ function buildModels(groups: Map<string, ModelGroup>): {
     id: group.id,
     label: group.label,
     byProvider: new Map(
-      [...group.byProvider].map(([name, totals]) => [name, sumUsageTotals(totals).totalTokens])
+      [...group.byProvider].map(([id, totals]) => [id, sumUsageTotals(totals).totalTokens])
     ),
     ...sumUsageTotals([...group.byProvider.values()].flat())
   })).filter((model) => model.totalTokens > 0)
@@ -307,14 +314,19 @@ function buildModels(groups: Map<string, ModelGroup>): {
   // busy tool cannot flatten the profile of a quieter one on the radar.
   const providerTotals = mergeProviderTokens(allModels.map((model) => model.byProvider));
   const modelProviders = [...providerTotals]
-    .map(([name, providerTokens]) => ({ name, totalTokens: providerTokens }))
+    .map(([id, providerTokens]) => ({
+      id,
+      name: namesById.get(id) ?? id,
+      totalTokens: providerTokens
+    }))
     .sort((left, right) => right.totalTokens - left.totalTokens);
 
   return {
     models: rows.map(({ byProvider, ...model }) => {
       const providers = [...byProvider]
         .map((entry) => ({
-          name: entry[0],
+          id: entry[0],
+          name: namesById.get(entry[0]) ?? entry[0],
           totalTokens: entry[1],
           share: percentage(entry[1], providerTotals.get(entry[0]) ?? 0)
         }))
