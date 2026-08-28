@@ -127,7 +127,7 @@ describe("EngineService", () => {
     const localNow = new Date(2026, 6, 18, 12);
     const store = new MemoryHistoryStore();
     store.sealDay("fixture", HISTORY_LOCAL_ACCOUNT_KEY, "2026-07-17", historyPayload(tokens(40)));
-    const refresh = vi.fn(async () => ({
+    const refresh = vi.fn<ProviderAdapter["refresh"]>(async () => ({
       source: "fixture",
       windows: [{ kind: "session", label: "Session", usedPercent: 25, remainingPercent: 75 }],
       identity: { plan: "test" },
@@ -141,7 +141,7 @@ describe("EngineService", () => {
     await engine.handle({ id: "1", method: "snapshot.get", params: { hydrateOnly: true } });
     await engine.handle({ id: "2", method: "snapshot.get", params: { force: false } });
     expect(refresh).toHaveBeenCalledOnce();
-    expect(refresh.mock.calls[0]?.[0].historyDays).toBe(1);
+    expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ historyDays: 1 }));
   });
 
   it("reports refresh progress for each provider", async () => {
