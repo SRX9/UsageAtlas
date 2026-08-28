@@ -127,7 +127,7 @@ describe("EngineService", () => {
     const localNow = new Date(2026, 6, 18, 12);
     const store = new MemoryHistoryStore();
     store.sealDay("fixture", HISTORY_LOCAL_ACCOUNT_KEY, "2026-07-17", historyPayload(tokens(40)));
-    const refresh = vi.fn(async (_context: { historyDays: number }) => ({
+    const refresh = vi.fn(async () => ({
       source: "fixture",
       windows: [{ kind: "session", label: "Session", usedPercent: 25, remainingPercent: 75 }],
       identity: { plan: "test" },
