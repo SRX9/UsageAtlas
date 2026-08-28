@@ -35,6 +35,23 @@ describe("Settings sources", () => {
   });
 });
 
+describe("Settings appearance", () => {
+  it("offers Mist, Valley, Night, Monterey, and Big Sur as background choices", () => {
+    const html = render([]);
+
+    expect(html).toContain("Mist");
+    expect(html).toContain("Valley");
+    expect(html).toContain("Night");
+    expect(html).toContain("Monterey");
+    expect(html).toContain("Big Sur");
+    expect(html).toContain('value="valley"');
+    expect(html).toContain('value="mist"');
+    expect(html).toContain('value="anime-calm"');
+    expect(html).toContain('value="monterey"');
+    expect(html).toContain('value="big-sur"');
+  });
+});
+
 function render(providers: DashboardProvider[]): string {
   return renderToStaticMarkup(
     <Settings
@@ -72,7 +89,7 @@ function provider(overrides: Partial<DashboardProvider> = {}): DashboardProvider
 
 function preferences(): DesktopPreferences {
   return {
-    backgroundImage: "default",
+    backgroundImage: "mist",
     customBackgroundName: null,
     launchAtLogin: false,
     minimizeToTray: true,

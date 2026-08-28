@@ -12,7 +12,14 @@ const port = process.parentPort;
 if (!port) throw new Error("Engine utility process parent port is unavailable");
 
 const history = openHistoryStore(process.env.USAGEATLAS_HISTORY_DB);
-const engine = new EngineService(createProviderAdapters(), () => new Date(), history);
+const engine = new EngineService(
+  createProviderAdapters(),
+  () => new Date(),
+  history,
+  (progress) => {
+    port.postMessage({ type: "engine.progress", ...progress });
+  }
+);
 let queue = Promise.resolve();
 
 port.on("message", (event) => {

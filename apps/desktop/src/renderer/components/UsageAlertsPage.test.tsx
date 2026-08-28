@@ -23,7 +23,7 @@ describe("UsageAlertsPage", () => {
 
 const preferences: DesktopPreferences = {
   anonymousAnalytics: true,
-  backgroundImage: "default",
+    backgroundImage: "mist",
   customBackgroundName: null,
   launchAtLogin: false,
   limitOrder: [],

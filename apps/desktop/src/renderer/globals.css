@@ -167,12 +167,32 @@
     margin: 0;
     overflow: hidden;
     background-color: var(--background);
-    background-image: var(--atlas-wallpaper-overlay), var(--atlas-wallpaper-image, url("./assets/usageatlas-anime-calm-wallpaper-night.png"));
+    background-image: var(--atlas-wallpaper-overlay), var(--atlas-wallpaper-image, url("./assets/wallpaper-mist.jpg"));
     background-position: center;
     background-size: cover;
     background-attachment: fixed;
     color: var(--foreground);
     user-select: none;
+  }
+
+  body[data-wallpaper="valley"] {
+    --atlas-wallpaper-image: url("./assets/wallpaper-valley.jpg");
+  }
+
+  body[data-wallpaper="mist"] {
+    --atlas-wallpaper-image: url("./assets/wallpaper-mist.jpg");
+  }
+
+  body[data-wallpaper="anime-calm"] {
+    --atlas-wallpaper-image: url("./assets/usageatlas-anime-calm-wallpaper-night.png");
+  }
+
+  body[data-wallpaper="monterey"] {
+    --atlas-wallpaper-image: url("./assets/wallpaper-monterey.jpg");
+  }
+
+  body[data-wallpaper="big-sur"] {
+    --atlas-wallpaper-image: url("./assets/wallpaper-big-sur.jpg");
   }
 
   #root {
@@ -1010,6 +1030,130 @@
     transparent 85%
   );
   opacity: 0.72;
+}
+
+.atlas-startup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - 88px);
+  padding-block: 48px 72px;
+  text-align: center;
+}
+
+.atlas-startup .atlas-page-title {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+}
+
+.atlas-startup .atlas-progress-ring {
+  width: max-content;
+  margin-block-start: 28px;
+}
+
+.atlas-startup__status {
+  margin: 14px 0 0;
+  max-width: 22rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.atlas-progress-ring {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  color: var(--foreground);
+}
+
+.atlas-progress-ring .progress-circle {
+  --progress-circle-stroke: var(--foreground);
+        --progress-circle-track-stroke: color-mix(in oklch, var(--foreground) 22%, transparent);
+  grid-area: 1 / 1;
+}
+
+.atlas-progress-ring--lg .progress-circle__track {
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.atlas-progress-ring--lg .progress-circle__track-circle,
+.atlas-progress-ring--lg .progress-circle__fill-circle {
+  stroke-width: 1.15;
+}
+
+.atlas-progress-ring--sm .progress-circle__track {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.atlas-progress-ring--sm .progress-circle__track-circle,
+.atlas-progress-ring--sm .progress-circle__fill-circle {
+  stroke-width: 3;
+}
+
+.atlas-progress-ring__fraction {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateY(-1px);
+  user-select: none;
+}
+
+.atlas-progress-ring__completed {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.atlas-progress-ring__total {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.atlas-refresh-status {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px clamp(8px, 1.2vw, 18px) 2px;
+}
+
+.atlas-refresh-status__label {
+  margin: 0;
+  min-width: 0;
+  max-width: 22rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .atlas-refresh-status {
+    animation: atlas-fade 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1898,33 +2042,120 @@
 
 .atlas-wallpaper-setting {
   display: flex;
-  min-height: 104px;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
   padding: 12px;
 }
 
-.atlas-wallpaper-preview {
+.atlas-wallpaper-options.radio-group {
+  width: 100%;
+  gap: 12px;
+}
+
+.atlas-wallpaper-options > .label,
+.atlas-wallpaper-options > [data-slot="label"] {
+  flex: 1 0 100%;
+  margin-block-end: 4px;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.atlas-wallpaper-option.radio {
+  margin: 0;
+  width: 132px;
+}
+
+.atlas-wallpaper-option .radio__content {
+  display: flex;
+  width: 132px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.atlas-wallpaper-option .radio__control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.atlas-wallpaper-option__preview {
   width: 132px;
   aspect-ratio: 16 / 10;
   flex: 0 0 auto;
   border-radius: 12px;
-  background-image: var(--atlas-wallpaper-overlay), url("./assets/usageatlas-anime-calm-wallpaper-night.png");
   background-position: center;
   background-size: cover;
   box-shadow: inset 0 0 0 1px var(--atlas-image-outline), 0 8px 24px -18px oklch(0 0 0 / 0.55);
 }
 
-.atlas-wallpaper-preview[data-custom="true"] {
-  background-image: var(--atlas-wallpaper-overlay), var(--atlas-preview-image);
+.atlas-wallpaper-option__preview[data-wallpaper="valley"] {
+  background-image: url("./assets/wallpaper-valley.jpg");
+}
+
+.atlas-wallpaper-option__preview[data-wallpaper="mist"] {
+  background-image: url("./assets/wallpaper-mist.jpg");
+}
+
+.atlas-wallpaper-option__preview[data-wallpaper="anime-calm"] {
+  background-image: url("./assets/usageatlas-anime-calm-wallpaper-night.png");
+}
+
+.atlas-wallpaper-option__preview[data-wallpaper="monterey"] {
+  background-image: url("./assets/wallpaper-monterey.jpg");
+}
+
+.atlas-wallpaper-option__preview[data-wallpaper="big-sur"] {
+  background-image: url("./assets/wallpaper-big-sur.jpg");
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .atlas-wallpaper-option__preview {
+    transition-property: transform, outline-color, box-shadow;
+    transition-duration: 120ms;
+  }
+
+  .atlas-wallpaper-option .radio__content[data-pressed="true"] .atlas-wallpaper-option__preview {
+    transform: scale(0.96);
+  }
+}
+
+.atlas-wallpaper-option[data-selected] .atlas-wallpaper-option__preview,
+.atlas-wallpaper-option .radio__content[data-focus-visible="true"] .atlas-wallpaper-option__preview {
+  outline: 2px solid;
+  outline-offset: 2px;
+}
+
+.atlas-wallpaper-option__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-wallpaper-option[data-selected] .atlas-wallpaper-option__label {
+  color: var(--foreground);
+}
+
+.atlas-wallpaper-hint {
+  margin-block-start: 24px;
 }
 
 .atlas-wallpaper-actions {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
+  margin-block-start: 12px;
 }
 
 .atlas-wallpaper-error {
@@ -2614,6 +2845,9 @@
 @media (prefers-contrast: more) {
   .atlas-kicker,
   .atlas-hero-description,
+  .atlas-startup__status,
+  .atlas-refresh-status__label,
+  .atlas-progress-ring__total,
   .atlas-section-heading > p,
   .atlas-section-heading > div > p:not(.atlas-kicker) {
     color: var(--foreground);

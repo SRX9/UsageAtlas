@@ -1,18 +1,97 @@
-import { Button, Skeleton } from "@heroui/react";
+/* eslint-disable react-refresh/only-export-components -- Loading copy is shared by the startup screen and the in-dashboard refresh ring. */
+
+import { Button, ProgressCircle } from "@heroui/react";
+import type { EngineStatus, RefreshProgress } from "../../shared/desktop-api";
 import { AlertIcon, ProvidersIcon } from "../icons";
 import { EmptyState } from "./UsagePrimitives";
 
-export function UsageLoading(): React.JSX.Element {
+export function UsageLoading({
+  engineStatus,
+  progress
+}: {
+  engineStatus: EngineStatus;
+  progress: RefreshProgress | null;
+}): React.JSX.Element {
+  const label = refreshStatusLabel(progress, engineStatus);
+
   return (
-    <div className="atlas-loading atlas-page grid gap-8" aria-busy="true" aria-label="Loading usage analyzer">
-      <Skeleton className="h-9 w-72 rounded-xl" />
-      <Skeleton className="h-36 w-full rounded-2xl" />
-      <div className="atlas-skeleton-summary">
-        {[0, 1, 2, 3].map((item) => <Skeleton className="h-32 rounded-2xl" key={item} />)}
-      </div>
-      <div className="atlas-content-grid"><Skeleton className="h-80 rounded-2xl" /><Skeleton className="h-80 rounded-2xl" /></div>
+    <div className="atlas-startup atlas-page" aria-busy="true">
+      <h1 className="atlas-page-title">Loading your usage</h1>
+      <UsageProgressRing label={label} progress={progress} size="lg" />
+      <p className="atlas-startup__status" aria-live="polite">{label}</p>
     </div>
   );
+}
+
+export function UsageRefreshStatus({
+  engineStatus,
+  progress
+}: {
+  engineStatus: EngineStatus;
+  progress: RefreshProgress | null;
+}): React.JSX.Element {
+  const label = refreshStatusLabel(progress, engineStatus, "Updating today’s usage");
+
+  return (
+    <div className="atlas-refresh-status" role="status">
+      <UsageProgressRing label={label} progress={progress} size="sm" />
+      <p className="atlas-refresh-status__label">{label}</p>
+    </div>
+  );
+}
+
+function UsageProgressRing({
+  label,
+  progress,
+  size
+}: {
+  label: string;
+  progress: RefreshProgress | null;
+  size: "sm" | "lg";
+}): React.JSX.Element {
+  const total = progress?.total ?? 0;
+  const completed = progress?.completed ?? 0;
+  const determinate = total > 0;
+
+  return (
+    <div className={`atlas-progress-ring atlas-progress-ring--${size}`}>
+      <ProgressCircle
+        aria-label={label}
+        color="default"
+        isIndeterminate={!determinate}
+        maxValue={Math.max(total, 1)}
+        size={size === "lg" ? "lg" : "sm"}
+        value={completed}
+      >
+        <ProgressCircle.Track>
+          <ProgressCircle.TrackCircle />
+          <ProgressCircle.FillCircle />
+        </ProgressCircle.Track>
+      </ProgressCircle>
+      {size === "lg" && determinate ? (
+        <span aria-hidden="true" className="atlas-progress-ring__fraction">
+          <span className="atlas-progress-ring__completed">{completed}</span>
+          <span className="atlas-progress-ring__total">/{total}</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function refreshStatusLabel(
+  progress: RefreshProgress | null,
+  engineStatus: EngineStatus,
+  fallback = "Opening saved usage"
+): string {
+  if (progress && progress.total > 0) {
+    if (progress.status === "started" && progress.providerName) {
+      return `Updating ${progress.providerName}`;
+    }
+    if (progress.completed >= progress.total) return "Finishing today’s numbers";
+    return "Updating today’s usage";
+  }
+  if (engineStatus === "starting") return "Starting the local engine";
+  return fallback;
 }
 
 export function UsageFailure({ error, onRetry }: { error: string; onRetry(): Promise<void> }): React.JSX.Element {

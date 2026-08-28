@@ -1,11 +1,14 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import { useCallback, useEffect, useState } from "react";
+import { UsageEmpty, UsageFailure, UsageLoading, UsageRefreshStatus } from "./components/UsagePageState";
 import type {
   AppRoute,
   DesktopPreferences,
   EngineDiagnostics,
-  EngineStatus
+  EngineStatus,
+  RefreshProgress
 } from "../shared/desktop-api";
+import { applyWallpaper } from "./wallpapers";
 import { AppShell } from "./components/AppShell";
 import { DayDashboard } from "./components/DayDashboard";
 import type { HealthNotice } from "./components/Diagnostics";
@@ -15,7 +18,6 @@ import { LimitsDashboard } from "./components/LimitsDashboard";
 import { Settings } from "./components/Settings";
 import { TrendsDashboard } from "./components/TrendsDashboard";
 import { UsageAlertsPage } from "./components/UsageAlertsPage";
-import { UsageEmpty, UsageFailure, UsageLoading } from "./components/UsagePageState";
 import { isSnapshotStale } from "./dashboard-model";
 import type { AnalyticsRange, ProviderScope } from "./personal-analytics";
 import { analyticsIssue, enabledProviders, todayDay } from "./personal-analytics";
@@ -31,6 +33,7 @@ export function App(): React.JSX.Element {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>("starting");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState<RefreshProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
@@ -60,14 +63,26 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     let active = true;
+    const removeSnapshot = window.usageAtlas.onSnapshot((next) => {
+      if (!active) return;
+      setSnapshot(next);
+      setError(null);
+      setRefreshing(false);
+      setRefreshProgress(null);
+    });
+    const removeProgress = window.usageAtlas.onRefreshProgress((progress) => {
+      if (!active) return;
+      setRefreshProgress(progress);
+      setRefreshing(true);
+    });
     const bootstrap = async (): Promise<void> => {
       try {
-        const [nextSnapshot, nextPreferences, nextBackgroundUrl] = await Promise.all([
+        const [nextSnapshot, nextPreferences, nextBackgroundUrl, nextDiagnostics] = await Promise.all([
           window.usageAtlas.getSnapshot(),
           window.usageAtlas.getPreferences(),
-          window.usageAtlas.getCustomBackground()
+          window.usageAtlas.getCustomBackground(),
+          window.usageAtlas.getDiagnostics()
         ]);
-        const nextDiagnostics = await window.usageAtlas.getDiagnostics();
         if (!active) return;
         setSnapshot(nextSnapshot);
         setPreferences(nextPreferences);
@@ -83,16 +98,15 @@ export function App(): React.JSX.Element {
       }
     };
     void bootstrap();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      removeSnapshot();
+      removeProgress();
+    };
   }, []);
 
   useEffect(() => {
-    const useCustomBackground = preferences?.backgroundImage === "custom" && customBackgroundUrl;
-    if (useCustomBackground) {
-      document.body.style.setProperty("--atlas-wallpaper-image", `url("${customBackgroundUrl}")`);
-    } else {
-      document.body.style.removeProperty("--atlas-wallpaper-image");
-    }
+    applyWallpaper(preferences?.backgroundImage, customBackgroundUrl);
   }, [customBackgroundUrl, preferences?.backgroundImage]);
 
   useEffect(() => {
@@ -100,15 +114,10 @@ export function App(): React.JSX.Element {
     window.addEventListener("hashchange", onHashChange);
     const removeNavigate = window.usageAtlas.onNavigate((next) => navigate(next));
     const removeStatus = window.usageAtlas.onEngineStatus(setEngineStatus);
-    const removeSnapshot = window.usageAtlas.onSnapshot((next) => {
-      setSnapshot(next);
-      setError(null);
-    });
     return () => {
       window.removeEventListener("hashchange", onHashChange);
       removeNavigate();
       removeStatus();
-      removeSnapshot();
     };
   }, [navigate]);
 
@@ -117,6 +126,7 @@ export function App(): React.JSX.Element {
     try {
       setSnapshot(await window.usageAtlas.refreshAll());
       setError(null);
+      setRefreshProgress(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The local engine did not respond.");
     } finally {
@@ -194,7 +204,7 @@ export function App(): React.JSX.Element {
 
   function renderUsageRoute(): React.JSX.Element | null {
     if (!usageRoute) return null;
-    if (loading) return <UsageLoading />;
+    if (loading) return <UsageLoading engineStatus={engineStatus} progress={refreshProgress} />;
     if (error && !snapshot) return <UsageFailure error={error} onRetry={refreshAll} />;
     if (!snapshot || enabledProviders(snapshot).length === 0) {
       return <UsageEmpty onOpenSettings={() => navigate("settings")} />;
@@ -263,6 +273,9 @@ export function App(): React.JSX.Element {
 
   return (
     <AppShell engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate} route={route}>
+      {!loading && refreshing ? (
+        <UsageRefreshStatus engineStatus={engineStatus} progress={refreshProgress} />
+      ) : null}
       {renderUsageRoute()}
       {route === "alerts" && (
         <UsageAlertsPage

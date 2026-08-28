@@ -3,16 +3,24 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizeLimitOrder, sanitizeTrayLimits } from "../shared/capacity-model";
-import type { DesktopPreferences } from "../shared/desktop-api";
+import {
+  BACKGROUND_DEFAULT_GENERATION,
+  DEFAULT_BACKGROUND_IMAGE,
+  isBackgroundImagePreference,
+  rollForwardBackgroundDefault,
+  sanitizeBackgroundImage,
+  type DesktopPreferences
+} from "../shared/desktop-api";
 import { cloneUsageAlertPreferences, sanitizeUsageAlertPreferences } from "../shared/usage-alerts";
 
 interface StoredPreferences extends DesktopPreferences {
   analyticsInstallationId: string;
+  backgroundDefaultGeneration: string;
 }
 
 function defaultPreferences(): StoredPreferences {
   return {
-    backgroundImage: 'default',
+    backgroundImage: DEFAULT_BACKGROUND_IMAGE,
     customBackgroundName: null,
     launchAtLogin: false,
     minimizeToTray: true,
@@ -21,7 +29,8 @@ function defaultPreferences(): StoredPreferences {
     trayLimits: {},
     usageAlerts: {},
     anonymousAnalytics: true,
-    analyticsInstallationId: randomUUID()
+    analyticsInstallationId: randomUUID(),
+    backgroundDefaultGeneration: BACKGROUND_DEFAULT_GENERATION
   };
 }
 
@@ -31,7 +40,9 @@ export class PreferenceStore {
 
   constructor() {
     this.filePath = path.join(app.getPath("userData"), "desktop-preferences.json");
-    this.values = this.load();
+    const loaded = this.readStored();
+    this.values = loaded.values;
+    if (loaded.persist) this.persist();
     this.applyLoginItemSetting(this.values.launchAtLogin);
   }
 
@@ -55,7 +66,7 @@ export class PreferenceStore {
 
   update(patch: Partial<DesktopPreferences>): DesktopPreferences {
     const next = { ...this.values };
-    if (patch.backgroundImage === 'default' || patch.backgroundImage === 'custom') {
+    if (isBackgroundImagePreference(patch.backgroundImage)) {
       next.backgroundImage = patch.backgroundImage;
     }
     if (patch.customBackgroundName === null || typeof patch.customBackgroundName === 'string') {
@@ -88,9 +99,9 @@ export class PreferenceStore {
     writeFileSync(this.filePath, `${JSON.stringify(this.values, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   }
 
-  private load(): StoredPreferences {
+  private readStored(): { values: StoredPreferences; persist: boolean } {
     const defaults = defaultPreferences();
-    if (!existsSync(this.filePath)) return defaults;
+    if (!existsSync(this.filePath)) return { values: defaults, persist: false };
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<StoredPreferences>;
       const providerEnabled = parsed.providerEnabled && typeof parsed.providerEnabled === "object"
@@ -98,24 +109,32 @@ export class PreferenceStore {
             /^[a-z0-9-]{1,64}$/u.test(providerID) && typeof enabled === "boolean"
           )))
         : {};
+      const rolled = rollForwardBackgroundDefault(
+        sanitizeBackgroundImage(parsed.backgroundImage),
+        parsed.backgroundDefaultGeneration
+      );
       return {
-        backgroundImage: parsed.backgroundImage === 'custom' ? 'custom' : 'default',
-        customBackgroundName: typeof parsed.customBackgroundName === 'string' ? parsed.customBackgroundName : null,
-        launchAtLogin: typeof parsed.launchAtLogin === "boolean" ? parsed.launchAtLogin : defaults.launchAtLogin,
-        minimizeToTray: typeof parsed.minimizeToTray === "boolean" ? parsed.minimizeToTray : defaults.minimizeToTray,
-        // Installs from before the toggle moved to Settings stored `null` for "not asked yet".
-        anonymousAnalytics: typeof parsed.anonymousAnalytics === "boolean"
-          ? parsed.anonymousAnalytics : defaults.anonymousAnalytics,
-        analyticsInstallationId: typeof parsed.analyticsInstallationId === "string"
-          && /^[0-9a-f-]{36}$/iu.test(parsed.analyticsInstallationId)
-          ? parsed.analyticsInstallationId : defaults.analyticsInstallationId,
-        providerEnabled,
-        limitOrder: sanitizeLimitOrder(parsed.limitOrder),
-        trayLimits: sanitizeTrayLimits(parsed.trayLimits),
-        usageAlerts: sanitizeUsageAlertPreferences(parsed.usageAlerts)
+        values: {
+          backgroundImage: rolled.backgroundImage,
+          customBackgroundName: typeof parsed.customBackgroundName === "string" ? parsed.customBackgroundName : null,
+          launchAtLogin: typeof parsed.launchAtLogin === "boolean" ? parsed.launchAtLogin : defaults.launchAtLogin,
+          minimizeToTray: typeof parsed.minimizeToTray === "boolean" ? parsed.minimizeToTray : defaults.minimizeToTray,
+          // Installs from before the toggle moved to Settings stored `null` for "not asked yet".
+          anonymousAnalytics: typeof parsed.anonymousAnalytics === "boolean"
+            ? parsed.anonymousAnalytics : defaults.anonymousAnalytics,
+          analyticsInstallationId: typeof parsed.analyticsInstallationId === "string"
+            && /^[0-9a-f-]{36}$/iu.test(parsed.analyticsInstallationId)
+            ? parsed.analyticsInstallationId : defaults.analyticsInstallationId,
+          providerEnabled,
+          limitOrder: sanitizeLimitOrder(parsed.limitOrder),
+          trayLimits: sanitizeTrayLimits(parsed.trayLimits),
+          usageAlerts: sanitizeUsageAlertPreferences(parsed.usageAlerts),
+          backgroundDefaultGeneration: rolled.appliedGeneration
+        },
+        persist: rolled.changed
       };
     } catch {
-      return defaults;
+      return { values: defaults, persist: false };
     }
   }
 

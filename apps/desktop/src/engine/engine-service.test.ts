@@ -1,9 +1,17 @@
 import dashboardFixture from "@usageatlas/contracts/fixtures/dashboard-v2.json";
-import type { JsonValue } from "@usageatlas/contracts";
+import {
+  HISTORY_DAY_PAYLOAD_VERSION,
+  HISTORY_LOCAL_ACCOUNT_KEY,
+  type HistoryDayPayload,
+  type JsonValue,
+  type UsageTotals
+} from "@usageatlas/contracts";
 import type { ProviderAdapter } from "./provider";
 import { describe, expect, it, vi } from "vitest";
 import { validateDashboard } from "../main/dashboard-validation";
 import { EngineService } from "./engine-service";
+import { MemoryHistoryStore } from "./history";
+import type { EngineRefreshProgress } from "./protocol";
 
 const now = new Date("2026-07-18T00:00:00.000Z");
 
@@ -96,4 +104,90 @@ describe("EngineService", () => {
     if (response.ok) return;
     expect(response.error.code).toBe("unknown_provider");
   });
+
+  it("paints from saved history without calling providers", async () => {
+    const localNow = new Date(2026, 6, 18, 12);
+    const store = new MemoryHistoryStore();
+    store.sealDay("fixture", HISTORY_LOCAL_ACCOUNT_KEY, "2026-07-17", historyPayload(tokens(40)));
+    const provider = adapter();
+    const engine = new EngineService([provider], () => localNow, store);
+    const response = await engine.handle({
+      id: "1",
+      method: "snapshot.get",
+      params: { hydrateOnly: true }
+    });
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    const snapshot = validateDashboard(response.result);
+    expect(provider.refresh).not.toHaveBeenCalled();
+    expect(snapshot.providers[0]?.analytics?.daily.some((day) => day.totalTokens === 40)).toBe(true);
+  });
+
+  it("only looks back one day after local history is already sealed", async () => {
+    const localNow = new Date(2026, 6, 18, 12);
+    const store = new MemoryHistoryStore();
+    store.sealDay("fixture", HISTORY_LOCAL_ACCOUNT_KEY, "2026-07-17", historyPayload(tokens(40)));
+    const refresh = vi.fn(async (_context: { historyDays: number }) => ({
+      source: "fixture",
+      windows: [{ kind: "session", label: "Session", usedPercent: 25, remainingPercent: 75 }],
+      identity: { plan: "test" },
+      credits: null,
+      analytics: null,
+      error: null,
+      updatedAt: localNow.toISOString()
+    }));
+    const provider: ProviderAdapter = { id: "fixture", name: "Fixture", refresh };
+    const engine = new EngineService([provider], () => localNow, store);
+    await engine.handle({ id: "1", method: "snapshot.get", params: { hydrateOnly: true } });
+    await engine.handle({ id: "2", method: "snapshot.get", params: { force: false } });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(refresh.mock.calls[0]?.[0].historyDays).toBe(1);
+  });
+
+  it("reports refresh progress for each provider", async () => {
+    const events: EngineRefreshProgress[] = [];
+    const provider = adapter();
+    const engine = new EngineService([provider], () => now, new MemoryHistoryStore(), (progress) => {
+      events.push(progress);
+    });
+    await engine.handle({ id: "1", method: "snapshot.get", params: { force: true } });
+    expect(events[0]).toMatchObject({ completed: 0, total: 1, status: "started" });
+    expect(events.some((event) => event.providerName === "Fixture" && event.status === "completed")).toBe(true);
+  });
 });
+
+function tokens(totalTokens: number): UsageTotals {
+  return {
+    inputTokens: totalTokens,
+    cachedInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    outputTokens: 0,
+    totalTokens,
+    requests: totalTokens > 0 ? 1 : 0,
+    estimatedCostUSD: null,
+    unpricedTokens: 0
+  };
+}
+
+function historyPayload(totals: UsageTotals): HistoryDayPayload {
+  return {
+    payloadVersion: HISTORY_DAY_PAYLOAD_VERSION,
+    accountKey: HISTORY_LOCAL_ACCOUNT_KEY,
+    windows: [{ kind: "session", label: "Session", usedPercent: 10, remainingPercent: 90 }],
+    identity: { plan: "test" },
+    credits: null,
+    source: "fixture",
+    capturedAt: now.toISOString(),
+    status: "available",
+    analyticsSource: "local_sessions",
+    totals,
+    hourly: [],
+    models: [],
+    projects: [],
+    sessions: [],
+    serviceTiers: [],
+    filesScanned: 1,
+    recordsProcessed: 1,
+    error: null
+  };
+}

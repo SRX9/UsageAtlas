@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { EngineStatus, UsageAtlasDesktopAPI } from "../shared/desktop-api";
+import type { EngineStatus, RefreshProgress, UsageAtlasDesktopAPI } from "../shared/desktop-api";
 import { IPC } from "../shared/desktop-api";
 
 const api: UsageAtlasDesktopAPI = {
@@ -26,6 +26,11 @@ const api: UsageAtlasDesktopAPI = {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: Parameters<typeof listener>[0]) => listener(snapshot);
     ipcRenderer.on(IPC.snapshotUpdated, handler);
     return () => ipcRenderer.removeListener(IPC.snapshotUpdated, handler);
+  },
+  onRefreshProgress: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: RefreshProgress) => listener(progress);
+    ipcRenderer.on(IPC.refreshProgress, handler);
+    return () => ipcRenderer.removeListener(IPC.refreshProgress, handler);
   }
 };
 

@@ -291,6 +291,10 @@ describe("EngineService history integration", () => {
     expect(historyDaysForAccount(store, "cursor", "user-a", new Date("2026-08-19T12:00:00.000Z"))).toBe(1);
     expect(historyDaysForAccount(store, "claude", HISTORY_LOCAL_ACCOUNT_KEY, new Date("2026-08-19T12:00:00.000Z")))
       .toBe(90);
+
+    store.sealDay("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18", payload({ totals: tokens(12) }));
+    expect(historyDaysForAccount(store, "claude", HISTORY_LOCAL_ACCOUNT_KEY, new Date("2026-08-19T12:00:00.000Z")))
+      .toBe(1);
   });
 
   it("does not clobber a good today draft when analytics returns no_data", () => {

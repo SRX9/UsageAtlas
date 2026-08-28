@@ -1,9 +1,11 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
-import { Button, Card, Skeleton, Spinner, Switch } from "@heroui/react";
+import { Button, Card, Label, Radio, RadioGroup, Skeleton, Spinner, Switch } from "@heroui/react";
+import type { BackgroundImagePreference, BuiltInBackgroundId, DesktopPreferences } from "../../shared/desktop-api";
+import { DEFAULT_BACKGROUND_IMAGE, isBackgroundImagePreference } from "../../shared/desktop-api";
 import { DESKTOP_VERSION } from "../../shared/version";
-import type { DesktopPreferences } from "../../shared/desktop-api";
 import { ExternalIcon, RefreshIcon } from "../icons";
 import { providerConnection, type ProviderConnection } from "../provider-connection";
+import { BUILT_IN_WALLPAPERS } from "../wallpapers";
 import { ProviderLogo } from "./ProviderLogo";
 
 interface SettingsProps {
@@ -81,67 +83,50 @@ export function Settings({
             </Card.Header>
             <Card.Content className="mt-2">
               <div className="atlas-wallpaper-setting">
-                <div
-                  aria-hidden="true"
-                  className="atlas-wallpaper-preview"
-                  data-custom={
-                    preferences.backgroundImage === "custom" &&
-                    customBackgroundUrl
-                      ? "true"
-                      : "false"
+                <RadioGroup
+                  className="atlas-wallpaper-options"
+                  isDisabled={saving}
+                  name="background-image"
+                  onChange={(value) => {
+                    if (isBackgroundImagePreference(value)) {
+                      void onUpdate({ backgroundImage: value });
+                    }
+                  }}
+                  orientation="horizontal"
+                  value={
+                    preferences.backgroundImage === "custom" && !customBackgroundUrl
+                      ? DEFAULT_BACKGROUND_IMAGE
+                      : preferences.backgroundImage
                   }
-                  style={
-                    customBackgroundUrl
-                      ? ({
-                          "--atlas-preview-image": `url("${customBackgroundUrl}")`,
-                        } as React.CSSProperties)
-                      : undefined
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <strong className="text-sm font-medium text-foreground">
-                    Background image
-                  </strong>
-                  <p className="mt-1 truncate text-xs text-muted">
-                    {preferences.backgroundImage === "custom" &&
-                    preferences.customBackgroundName
-                      ? preferences.customBackgroundName
-                      : "UsageAtlas default"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    JPG, PNG, or WebP up to 25 MB.
-                  </p>
-                  <p
-                    className="atlas-wallpaper-error mt-1 text-xs"
-                    role="alert"
-                  >
-                    {backgroundError ?? ""}
-                  </p>
-                </div>
+                  variant="secondary"
+                >
+                  <Label>Background image</Label>
+                  {BUILT_IN_WALLPAPERS.map((wallpaper) => (
+                    <WallpaperOption
+                      key={wallpaper.id}
+                      label={wallpaper.label}
+                      value={wallpaper.id}
+                      wallpaper={wallpaper.id}
+                    />
+                  ))}
+                  {customBackgroundUrl ? (
+                    <WallpaperOption
+                      label={preferences.customBackgroundName ?? "Custom"}
+                      src={customBackgroundUrl}
+                      value="custom"
+                    />
+                  ) : null}
+                </RadioGroup>
+                <p className="atlas-wallpaper-hint text-xs text-muted">
+                  JPG, PNG, or WebP up to 25 MB.
+                </p>
+                <p
+                  className="atlas-wallpaper-error mt-1 text-xs"
+                  role="alert"
+                >
+                  {backgroundError ?? ""}
+                </p>
                 <div className="atlas-wallpaper-actions">
-                  {customBackgroundUrl &&
-                  preferences.backgroundImage === "default" ? (
-                    <Button
-                      isDisabled={saving}
-                      onPress={() =>
-                        void onUpdate({ backgroundImage: "custom" })
-                      }
-                      variant="secondary"
-                    >
-                      Use custom
-                    </Button>
-                  ) : null}
-                  {preferences.backgroundImage === "custom" ? (
-                    <Button
-                      isDisabled={saving}
-                      onPress={() =>
-                        void onUpdate({ backgroundImage: "default" })
-                      }
-                      variant="secondary"
-                    >
-                      Use default
-                    </Button>
-                  ) : null}
                   <Button
                     isDisabled={saving}
                     onPress={() => void onChooseCustomBackground()}
@@ -276,6 +261,35 @@ export function Settings({
         </div>
       )}
     </div>
+  );
+}
+
+function WallpaperOption({
+  label,
+  src,
+  value,
+  wallpaper
+}: {
+  label: string;
+  src?: string;
+  value: BackgroundImagePreference;
+  wallpaper?: BuiltInBackgroundId;
+}): React.JSX.Element {
+  return (
+    <Radio className="atlas-wallpaper-option" value={value}>
+      <Radio.Content>
+        <Radio.Control className="sr-only">
+          <Radio.Indicator />
+        </Radio.Control>
+        <span
+          aria-hidden="true"
+          className="atlas-wallpaper-option__preview"
+          data-wallpaper={wallpaper}
+          style={src ? { backgroundImage: `url("${src}")` } : undefined}
+        />
+        <span className="atlas-wallpaper-option__label">{label}</span>
+      </Radio.Content>
+    </Radio>
   );
 }
 

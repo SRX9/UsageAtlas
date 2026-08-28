@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEngineReadyMessage,
   EngineRequestError,
+  isEngineProgressMessage,
   isEngineReadyMessage,
   parseEngineRequest,
   parseEngineResponse
@@ -27,5 +28,17 @@ describe("engine protocol", () => {
     expect(isEngineReadyMessage(createEngineReadyMessage())).toBe(true);
     expect(isEngineReadyMessage({ type: "engine.ready", protocolVersion: 2 })).toBe(false);
     expect(isEngineReadyMessage({ ...createEngineReadyMessage(), extra: true })).toBe(false);
+  });
+
+  it("accepts refresh progress events", () => {
+    expect(isEngineProgressMessage({
+      type: "engine.progress",
+      completed: 1,
+      total: 3,
+      providerID: "claude",
+      providerName: "Claude",
+      status: "completed"
+    })).toBe(true);
+    expect(isEngineProgressMessage(createEngineReadyMessage())).toBe(false);
   });
 });

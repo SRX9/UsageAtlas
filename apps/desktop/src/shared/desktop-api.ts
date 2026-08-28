@@ -9,7 +9,37 @@ export interface UsageAlertRule {
 }
 
 export type UsageAlertPreferences = Record<string, Record<string, UsageAlertRule>>;
-export type BackgroundImagePreference = 'default' | 'custom';
+export const BUILT_IN_BACKGROUND_IDS = ["mist", "valley", "anime-calm", "monterey", "big-sur"] as const;
+export type BuiltInBackgroundId = (typeof BUILT_IN_BACKGROUND_IDS)[number];
+export type BackgroundImagePreference = BuiltInBackgroundId | "custom";
+export const DEFAULT_BACKGROUND_IMAGE: BuiltInBackgroundId = "mist";
+export const BACKGROUND_DEFAULT_GENERATION = DEFAULT_BACKGROUND_IMAGE;
+
+const builtInBackgroundIdSet = new Set<string>(BUILT_IN_BACKGROUND_IDS);
+
+export function isBackgroundImagePreference(value: unknown): value is BackgroundImagePreference {
+  return value === "custom" || (typeof value === "string" && builtInBackgroundIdSet.has(value));
+}
+
+export function sanitizeBackgroundImage(value: unknown): BackgroundImagePreference {
+  return isBackgroundImagePreference(value) ? value : DEFAULT_BACKGROUND_IMAGE;
+}
+
+/** Move existing installs onto a new product default once, without replacing a custom upload. */
+export function rollForwardBackgroundDefault(
+  backgroundImage: BackgroundImagePreference,
+  appliedGeneration: unknown
+): { backgroundImage: BackgroundImagePreference; appliedGeneration: string; changed: boolean } {
+  if (appliedGeneration === BACKGROUND_DEFAULT_GENERATION) {
+    return { backgroundImage, appliedGeneration: BACKGROUND_DEFAULT_GENERATION, changed: false };
+  }
+
+  return {
+    backgroundImage: backgroundImage === "custom" ? "custom" : DEFAULT_BACKGROUND_IMAGE,
+    appliedGeneration: BACKGROUND_DEFAULT_GENERATION,
+    changed: true
+  };
+}
 
 export interface DesktopPreferences {
   backgroundImage: BackgroundImagePreference;
@@ -36,6 +66,14 @@ export interface EngineDiagnostics {
   messages: string[];
 }
 
+export interface RefreshProgress {
+  completed: number;
+  total: number;
+  providerID: string | null;
+  providerName: string | null;
+  status: "started" | "completed";
+}
+
 export interface UsageAtlasDesktopAPI {
   getCustomBackground(): Promise<string | null>;
   chooseCustomBackground(): Promise<BackgroundImageSelection | null>;
@@ -49,6 +87,7 @@ export interface UsageAtlasDesktopAPI {
   onEngineStatus(listener: (status: EngineStatus) => void): () => void;
   onNavigate(listener: (route: AppRoute) => void): () => void;
   onSnapshot(listener: (snapshot: DashboardSnapshot) => void): () => void;
+  onRefreshProgress(listener: (progress: RefreshProgress) => void): () => void;
 }
 
 export const IPC = {
@@ -63,5 +102,6 @@ export const IPC = {
   engineStatus: "engine:status",
   navigate: "shell:navigate",
   snapshotUpdated: "dashboard:updated",
+  refreshProgress: "dashboard:refresh-progress",
   openExternal: "shell:open-external"
 } as const;

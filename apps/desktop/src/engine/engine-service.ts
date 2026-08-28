@@ -19,7 +19,7 @@ import {
   type HistoryStore,
   MemoryHistoryStore
 } from "./history";
-import type { EngineRequest, EngineResponse } from "./protocol";
+import type { EngineRefreshProgress, EngineRequest, EngineResponse } from "./protocol";
 import { ProviderError, type ProviderAdapter, type ProviderRefreshResult } from "./provider";
 import { DESKTOP_VERSION } from "../shared/version";
 
@@ -37,7 +37,8 @@ export class EngineService {
   constructor(
     adapters: ProviderAdapter[],
     private readonly now: () => Date = () => new Date(),
-    history: HistoryStore = new MemoryHistoryStore()
+    history: HistoryStore = new MemoryHistoryStore(),
+    private readonly emitProgress?: (progress: EngineRefreshProgress) => void
   ) {
     this.history = history;
     for (const adapter of adapters) {
@@ -68,6 +69,10 @@ export class EngineService {
   private async dispatch(request: EngineRequest): Promise<JsonValue> {
     switch (request.method) {
       case "snapshot.get":
+        this.hydrateFromHistory();
+        if (request.params.hydrateOnly === true) {
+          return this.snapshot() as unknown as JsonValue;
+        }
         await this.refreshAvailable(request.params.force === true);
         return this.snapshot() as unknown as JsonValue;
       case "provider.refresh": {
@@ -105,12 +110,60 @@ export class EngineService {
       this.enabled.set(provider.id, available);
       return provider;
     }));
-    const refreshes = providers
-      .filter((provider) => (this.enabled.get(provider.id) ?? true)
-        && (force || !this.cached.has(provider.id)
-          || now - (this.refreshedAt.get(provider.id) ?? 0) >= STALE_AFTER_SECONDS * 1_000))
-      .map((provider) => this.refreshProvider(provider.id));
-    await Promise.all(refreshes);
+    const pending = providers.filter((provider) => (this.enabled.get(provider.id) ?? true)
+      && (force || !this.cached.has(provider.id)
+        || now - (this.refreshedAt.get(provider.id) ?? 0) >= STALE_AFTER_SECONDS * 1_000));
+    if (pending.length === 0) return;
+    this.emitProgress?.({
+      completed: 0,
+      total: pending.length,
+      providerID: null,
+      providerName: null,
+      status: "started"
+    });
+    let completed = 0;
+    await Promise.all(pending.map(async (provider) => {
+      this.emitProgress?.({
+        completed,
+        total: pending.length,
+        providerID: provider.id,
+        providerName: provider.name,
+        status: "started"
+      });
+      await this.refreshProvider(provider.id);
+      completed += 1;
+      this.emitProgress?.({
+        completed,
+        total: pending.length,
+        providerID: provider.id,
+        providerName: provider.name,
+        status: "completed"
+      });
+    }));
+  }
+
+  private hydrateFromHistory(): void {
+    const now = this.now();
+    for (const adapter of this.providers.values()) {
+      if (this.cached.has(adapter.id)) continue;
+      const enabled = this.enabled.get(adapter.id) ?? true;
+      if (!enabled) continue;
+      const fallback = fallbackFromHistory(this.history, adapter.id, now, HISTORY_LOCAL_ACCOUNT_KEY);
+      if (!fallback.composed && !fallback.today && !fallback.capacity) continue;
+      const capacity = firstCapacity(undefined, fallback.today, fallback.capacity);
+      this.cached.set(adapter.id, {
+        id: adapter.id,
+        name: adapter.name,
+        enabled,
+        source: capacity?.source ?? "unavailable",
+        windows: capacity?.windows ?? [],
+        identity: capacity?.identity ?? null,
+        credits: capacity?.credits ?? null,
+        analytics: fallback.composed,
+        error: null,
+        updatedAt: capacity?.updatedAt ?? null
+      });
+    }
   }
 
   private async refreshProvider(providerID: string): Promise<void> {

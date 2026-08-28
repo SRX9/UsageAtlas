@@ -22,8 +22,9 @@ import squirrelStartup from "electron-squirrel-startup";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { isLimitKey } from "../shared/capacity-model";
-import type { AppRoute, DesktopPreferences } from "../shared/desktop-api";
-import { IPC } from "../shared/desktop-api";
+import { snapshotHasCachedUsage } from "../shared/cached-snapshot";
+import type { AppRoute, DesktopPreferences, RefreshProgress } from "../shared/desktop-api";
+import { IPC, isBackgroundImagePreference } from "../shared/desktop-api";
 import { isUsageAlertPreferences } from "../shared/usage-alerts";
 import { EngineManager } from "./engine-manager";
 import { PreferenceStore } from "./preferences";
@@ -65,6 +66,7 @@ let installPendingUpdate: (() => void) | null = null;
 let engine: EngineManager;
 let preferences: PreferenceStore;
 let telemetry: DesktopTelemetry;
+let liveSnapshotPublish: Promise<DashboardSnapshot> | null = null;
 
 const activeUsageNotifications = new Set<Notification>();
 const usageAlertEvaluator = new UsageAlertEvaluator();
@@ -196,11 +198,37 @@ function showWindow(route: AppRoute = "day"): void {
 }
 
 async function getSnapshotWithUsageAlerts(force = false): Promise<DashboardSnapshot> {
-  const snapshot = force ? await engine.refreshAll() : await engine.getSnapshot();
-  updateTrayMenu(snapshot);
-  const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
-  for (const alert of alerts) showUsageNotification(alert);
+  if (!force) {
+    const hydrated = await engine.getHydratedSnapshot();
+    if (snapshotHasCachedUsage(hydrated)) {
+      updateTrayMenu(hydrated);
+      void publishLiveSnapshot(false).then((snapshot) => {
+        mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
+      }).catch(() => undefined);
+      return hydrated;
+    }
+  }
+  const snapshot = await publishLiveSnapshot(force);
+  mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
   return snapshot;
+}
+
+function publishLiveSnapshot(force: boolean): Promise<DashboardSnapshot> {
+  if (liveSnapshotPublish && !force) return liveSnapshotPublish;
+  const run = (async () => {
+    const snapshot = force ? await engine.refreshAll() : await engine.getSnapshot();
+    updateTrayMenu(snapshot);
+    const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
+    for (const alert of alerts) showUsageNotification(alert);
+    return snapshot;
+  })();
+  if (!force) {
+    liveSnapshotPublish = run.finally(() => {
+      liveSnapshotPublish = null;
+    });
+    return liveSnapshotPublish;
+  }
+  return run;
 }
 
 function showUsageNotification(alert: TriggeredUsageAlert): void {
@@ -418,7 +446,7 @@ function isPreferencePatch(value: unknown): value is Partial<DesktopPreferences>
   return (patch.launchAtLogin === undefined || typeof patch.launchAtLogin === "boolean")
     && (patch.minimizeToTray === undefined || typeof patch.minimizeToTray === "boolean")
     && (patch.anonymousAnalytics === undefined || typeof patch.anonymousAnalytics === "boolean")
-    && (patch.backgroundImage === undefined || patch.backgroundImage === "default" || patch.backgroundImage === "custom")
+    && (patch.backgroundImage === undefined || isBackgroundImagePreference(patch.backgroundImage))
     && (patch.limitOrder === undefined || (
       Array.isArray(patch.limitOrder)
       && patch.limitOrder.length <= 128
@@ -496,6 +524,16 @@ if (squirrelStartup) {
     )
   );
   engine.onStatus((status) => mainWindow?.webContents.send(IPC.engineStatus, status));
+  engine.onProgress((progress) => {
+    const payload: RefreshProgress = {
+      completed: progress.completed,
+      total: progress.total,
+      providerID: progress.providerID,
+      providerName: progress.providerName,
+      status: progress.status
+    };
+    mainWindow?.webContents.send(IPC.refreshProgress, payload);
+  });
   await engine.applyProviderPreferences(preferences.get().providerEnabled);
   registerIPC();
   createTray();

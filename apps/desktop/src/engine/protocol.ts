@@ -5,6 +5,18 @@ export const ENGINE_PROTOCOL_VERSION = 1 as const;
 
 export type EngineMethod = "snapshot.get" | "provider.refresh" | "config.update" | "shutdown";
 
+export interface EngineRefreshProgress {
+  completed: number;
+  total: number;
+  providerID: string | null;
+  providerName: string | null;
+  status: "started" | "completed";
+}
+
+export interface EngineProgressMessage extends EngineRefreshProgress {
+  type: "engine.progress";
+}
+
 export interface EngineRequest {
   id: string;
   method: EngineMethod;
@@ -50,6 +62,17 @@ export class EngineRequestError extends Error {
 
 export function createEngineReadyMessage(): EngineReadyMessage {
   return { type: "engine.ready", protocolVersion: ENGINE_PROTOCOL_VERSION };
+}
+
+export function isEngineProgressMessage(value: unknown): value is EngineProgressMessage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const message = value as Record<string, unknown>;
+  return message.type === "engine.progress"
+    && (message.status === "started" || message.status === "completed")
+    && typeof message.completed === "number"
+    && typeof message.total === "number"
+    && (message.providerID === null || typeof message.providerID === "string")
+    && (message.providerName === null || typeof message.providerName === "string");
 }
 
 export function isEngineReadyMessage(value: unknown): value is EngineReadyMessage {

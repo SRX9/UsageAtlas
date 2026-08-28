@@ -1,7 +1,7 @@
 import type { DashboardSnapshot, JsonValue } from "@usageatlas/contracts";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { EngineMethod, EngineResponse } from "../engine/protocol";
+import type { EngineMethod, EngineProgressMessage, EngineResponse } from "../engine/protocol";
 import { redactDiagnostic } from "../engine/platform/redaction";
 import type { EngineDiagnostics, EngineStatus } from "../shared/desktop-api";
 import { validateDashboard } from "./dashboard-validation";
@@ -28,6 +28,15 @@ export class EngineManager {
   onStatus(listener: (status: EngineStatus) => void): () => void {
     this.events.on("status", listener);
     return () => this.events.off("status", listener);
+  }
+
+  onProgress(listener: (progress: EngineProgressMessage) => void): () => void {
+    this.events.on("progress", listener);
+    return () => this.events.off("progress", listener);
+  }
+
+  async getHydratedSnapshot(): Promise<DashboardSnapshot> {
+    return validateDashboard(await this.request("snapshot.get", { hydrateOnly: true }));
   }
 
   async getSnapshot(): Promise<DashboardSnapshot> {
@@ -119,6 +128,7 @@ export class EngineManager {
     const transport = this.createTransport();
     this.starting = transport.start({
       message: (response) => this.acceptResponse(response),
+      progress: (progress) => this.events.emit("progress", progress),
       diagnostic: (message) => this.record(message),
       exit: (code) => this.handleExit(transport, code)
     }).then(() => {

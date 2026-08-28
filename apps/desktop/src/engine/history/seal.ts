@@ -1,5 +1,4 @@
 import {
-  HISTORY_LOCAL_ACCOUNT_KEY,
   type DashboardProvider,
   type HistoryDayPayload,
   type LocalUsageAnalytics
@@ -111,7 +110,6 @@ export function historyDaysForAccount(
   accountKey: string,
   now: Date
 ): number {
-  if (accountKey === HISTORY_LOCAL_ACCOUNT_KEY) return HISTORY_BACKFILL_DAYS;
   const today = localCalendarDay(now);
   const startDay = shiftLocalDay(today, -(HISTORY_BACKFILL_DAYS - 1));
   const sealed = store.getRange(providerId, startDay, shiftLocalDay(today, -1))
