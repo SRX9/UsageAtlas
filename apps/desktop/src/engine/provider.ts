@@ -7,6 +7,7 @@ export interface ProviderContext {
   historyDays: number;
   /** Preferred lookback once the adapter knows the login identity. */
   historyDaysForAccount(accountKey: string): number;
+  reportingTimeZoneForAccount?(accountKey: string): string | undefined;
 }
 
 export type ProviderRefreshResult = Omit<DashboardProvider, "id" | "name" | "enabled"> & {

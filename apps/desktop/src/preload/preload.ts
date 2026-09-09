@@ -3,6 +3,8 @@ import type { EngineStatus, RefreshProgress, UsageAtlasDesktopAPI } from "../sha
 import { IPC } from "../shared/desktop-api";
 
 const api: UsageAtlasDesktopAPI = {
+  getCloudStatus: () => ipcRenderer.invoke(IPC.cloudStatus),
+  cloudAction: (action, options) => ipcRenderer.invoke(IPC.cloudAction, action, options),
   getCustomBackground: () => ipcRenderer.invoke(IPC.getCustomBackground),
   chooseCustomBackground: () => ipcRenderer.invoke(IPC.chooseCustomBackground),
   getSnapshot: () => ipcRenderer.invoke(IPC.snapshot),

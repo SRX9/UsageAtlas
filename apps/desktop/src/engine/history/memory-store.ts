@@ -80,31 +80,6 @@ export class MemoryHistoryStore implements HistoryStore {
     return sealed;
   }
 
-  changesSince(changeSeq: number): HistoryDayRecord[] {
-    return [...this.rows.values()]
-      .filter((row) => row.changeSeq > changeSeq)
-      .sort((left, right) => left.changeSeq - right.changeSeq);
-  }
-
-  applyRemote(records: HistoryDayRecord[]): void {
-    for (const remote of records) {
-      const key = rowKey(remote.providerId, remote.accountKey, remote.localDay);
-      const existing = this.rows.get(key);
-      if (!existing) {
-        this.rows.set(key, { ...remote, changeSeq: this.nextSeq++ });
-        continue;
-      }
-      if (existing.sealed) continue;
-      if (remote.sealed) {
-        this.rows.set(key, {
-          ...remote,
-          id: existing.id,
-          changeSeq: this.nextSeq++
-        });
-      }
-    }
-  }
-
   private write(
     existing: HistoryDayRecord | undefined,
     providerId: string,

@@ -1,3 +1,5 @@
+import { SqliteHistoryStore } from "./history/sqlite-store";
+import { UsageSync, httpUsageCloud } from "./history/usage-sync";
 import {
   DASHBOARD_SCHEMA_VERSION,
   HISTORY_LOCAL_ACCOUNT_KEY,
@@ -33,14 +35,17 @@ export class EngineService {
   private readonly cached = new Map<string, DashboardProvider>();
   private readonly refreshedAt = new Map<string, number>();
   private readonly history: HistoryStore;
+  private readonly sync: UsageSync | null;
 
   constructor(
     adapters: ProviderAdapter[],
     private readonly now: () => Date = () => new Date(),
     history: HistoryStore = new MemoryHistoryStore(),
-    private readonly emitProgress?: (progress: EngineRefreshProgress) => void
+    private readonly emitProgress?: (progress: EngineRefreshProgress) => void,
+    private readonly historyChanged?: () => void
   ) {
     this.history = history;
+    this.sync = history instanceof SqliteHistoryStore ? new UsageSync(history.usage, () => { this.cached.clear(); this.historyChanged?.(); }) : null;
     for (const adapter of adapters) {
       if (this.providers.has(adapter.id)) throw new Error(`Duplicate provider adapter: ${adapter.id}`);
       this.providers.set(adapter.id, adapter);
@@ -89,7 +94,33 @@ export class EngineService {
         this.explicitlyConfigured.add(providerID);
         return { provider: providerID, enabled: request.params.enabled };
       }
+      case "cloud": {
+        if (!this.sync) throw new Error("Cloud save requires local SQLite storage.");
+        const { operation, accountId, token, baseURL, enabled, recordId, choice } = request.params;
+        switch (operation) {
+          case "status": break;
+          case "configure":
+            if (typeof accountId !== "string" || typeof token !== "string" || typeof baseURL !== "string") throw new Error("Invalid account configuration.");
+            await this.sync.configure(accountId, token ? httpUsageCloud(baseURL, token) : null);
+            this.cached.clear();
+            this.refreshedAt.clear();
+            break;
+          case "automatic":
+            if (typeof enabled !== "boolean") throw new Error("Invalid automatic save setting.");
+            this.sync.setAutomatic(enabled);
+            break;
+          case "save": void this.sync.save().catch(() => undefined); break;
+          case "restore": void this.sync.restore().catch(() => undefined); break;
+          case "resolve":
+            if (typeof recordId !== "string" || (choice !== "local" && choice !== "cloud")) throw new Error("Invalid conflict choice.");
+            this.sync.resolve(recordId, choice);
+            break;
+          default: throw new Error("Unknown cloud operation.");
+        }
+        return this.sync.status() as unknown as JsonValue;
+      }
       case "shutdown":
+        this.sync?.close();
         this.history.close?.();
         return { shuttingDown: true };
     }
@@ -107,7 +138,8 @@ export class EngineService {
     const providers = await Promise.all([...this.providers.values()].map(async (provider) => {
       if (this.explicitlyConfigured.has(provider.id) || !provider.isAvailable) return provider;
       const available = await provider.isAvailable().catch(() => false);
-      this.enabled.set(provider.id, available);
+      const cached = this.cached.get(provider.id);
+      this.enabled.set(provider.id, available || Boolean(cached?.analytics || cached?.windows.length));
       return provider;
     }));
     const pending = providers.filter((provider) => (this.enabled.get(provider.id) ?? true)
@@ -147,14 +179,15 @@ export class EngineService {
     for (const adapter of this.providers.values()) {
       if (this.cached.has(adapter.id)) continue;
       const enabled = this.enabled.get(adapter.id) ?? true;
-      if (!enabled) continue;
+      if (!enabled && this.explicitlyConfigured.has(adapter.id)) continue;
       const fallback = fallbackFromHistory(this.history, adapter.id, now, HISTORY_LOCAL_ACCOUNT_KEY);
       if (!fallback.composed && !fallback.today && !fallback.capacity) continue;
+      this.enabled.set(adapter.id, true);
       const capacity = firstCapacity(undefined, fallback.today, fallback.capacity);
       this.cached.set(adapter.id, {
         id: adapter.id,
         name: adapter.name,
-        enabled,
+        enabled: true,
         source: capacity?.source ?? "unavailable",
         windows: capacity?.windows ?? [],
         identity: capacity?.identity ?? null,
@@ -173,6 +206,7 @@ export class EngineService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROVIDER_REFRESH_TIMEOUT_MS);
     const defaultAccountKey = HISTORY_LOCAL_ACCOUNT_KEY;
+    let reportingTimeZone = this.history.reportingTimeZone?.(providerID, defaultAccountKey);
     const lookbackDays = (accountKey: string): number => safeHistory(
       () => historyDaysForAccount(this.history, providerID, resolveAccountKey(accountKey), now),
       HISTORY_BACKFILL_DAYS,
@@ -183,7 +217,8 @@ export class EngineService {
         signal: controller.signal,
         now,
         historyDays: lookbackDays(defaultAccountKey),
-        historyDaysForAccount: lookbackDays
+        historyDaysForAccount: lookbackDays,
+        reportingTimeZoneForAccount: account => { reportingTimeZone = this.history.reportingTimeZone?.(providerID, account); return reportingTimeZone; }
       });
       const accountKey = resolveAccountKey(refreshed.accountKey);
       const { accountKey: _ignored, ...provider } = refreshed as ProviderRefreshResult & {
@@ -191,7 +226,7 @@ export class EngineService {
       };
       void _ignored;
       const previous = this.cached.get(providerID);
-      const persisted = persistLiveHistory(this.history, providerID, accountKey, now, provider);
+      const persisted = persistLiveHistory(this.history, providerID, accountKey, now, provider, reportingTimeZone);
       this.cached.set(providerID, {
         ...provider,
         id: adapter.id,
@@ -271,11 +306,13 @@ function persistLiveHistory(
   providerID: string,
   accountKey: string,
   now: Date,
-  live: Omit<DashboardProvider, "id" | "name" | "enabled">
+  live: Omit<DashboardProvider, "id" | "name" | "enabled">,
+  timeZone?: string
 ): { composed: DashboardProvider["analytics"]; storedToday: HistoryDayRecord | null } {
   try {
     const composed = persistProviderHistory({
       store: history,
+      timeZone,
       providerId: providerID,
       accountKey,
       now,
@@ -308,10 +345,10 @@ function fallbackFromHistory(
 ): { today: HistoryDayRecord | null; capacity: HistoryDayRecord | null; composed: DashboardProvider["analytics"] } {
   const today = localCalendarDay(now);
   const startDay = shiftLocalDay(today, -(HISTORY_SNAPSHOT_DAYS - 1));
-  const rows = safeHistory(() => history.getRange(providerID, startDay, today), [], "read");
-  const todayRecord = latestHistoryRecord(rows.filter((row) => row.localDay === today));
-  const capacity = latestHistoryRecord(rows.filter((row) => row.payload.windows.length > 0));
-  const accountKey = todayRecord?.accountKey ?? capacity?.accountKey ?? defaultAccountKey;
+  const rows = safeHistory(() => history.getRange(providerID, startDay, shiftLocalDay(today, 1)), [], "read");
+  const todayRecord = latestHistoryRecord(rows.filter((row) => row.localDay === localCalendarDay(now, row.payload.timeZone ?? undefined)));
+  const capacity = history.latestCapacity?.(providerID) ?? latestHistoryRecord(rows.filter((row) => row.payload.windows.length > 0));
+  const accountKey = todayRecord?.accountKey ?? capacity?.accountKey ?? latestHistoryRecord(rows)?.accountKey ?? defaultAccountKey;
   return {
     today: todayRecord,
     capacity,
@@ -366,7 +403,7 @@ function firstWindows(
 function latestHistoryRecord(rows: HistoryDayRecord[]): HistoryDayRecord | null {
   return rows.reduce<HistoryDayRecord | null>((best, row) => {
     if (!best) return row;
-    if (row.changeSeq !== best.changeSeq) return row.changeSeq > best.changeSeq ? row : best;
+    if (row.localDay !== best.localDay) return row.localDay > best.localDay ? row : best;
     return row.updatedAt >= best.updatedAt ? row : best;
   }, null);
 }

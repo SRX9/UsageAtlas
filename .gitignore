@@ -10,7 +10,6 @@ tmp/
 # Environment and signing material
 .env
 .env.*
-!.env.example
 *.local
 *.pfx
 *.p12

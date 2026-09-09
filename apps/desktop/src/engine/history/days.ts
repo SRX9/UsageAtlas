@@ -1,4 +1,16 @@
-export function localCalendarDay(value: Date): string {
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+
+export function localCalendarDay(value: Date, timeZone?: string): string {
+  if (timeZone) {
+    let formatter = dayFormats.get(timeZone);
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+      dayFormats.set(timeZone, formatter);
+    }
+    const parts = formatter.formatToParts(value);
+    const get = (type: string) => parts.find(part => part.type === type)!.value;
+    return `${get("year")}-${get("month")}-${get("day")}`;
+  }
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");

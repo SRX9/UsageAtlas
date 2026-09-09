@@ -14,6 +14,7 @@ import { EngineService } from "../engine-service";
 import { openWritableSqlite } from "../platform/sqlite";
 import type { ProviderAdapter } from "../provider";
 import { ProviderError } from "../provider";
+import { parseCursorUsage } from "../providers/cursor";
 import {
   composeProviderAnalytics,
   historyDaysForAccount,
@@ -31,6 +32,38 @@ afterEach(async () => {
 });
 
 describe("HistoryStore", () => {
+  it("keeps sealing and collecting after sign-in with unclaimed local drafts", () => {
+    const store = SqliteHistoryStore.open(":memory:");
+    try {
+      const old = store.upsertDraft("claude", "local", "2026-08-18", payload({ totals: tokens(25) }));
+      store.usage.selectAccount("a");
+      store.usage.setSetting("automatic:a", "0");
+      persistProviderHistory({ store, providerId: "claude", accountKey: "local", now: new Date("2026-08-19T12:00:00Z"), live: {
+        source: "local_sessions", windows: [], identity: null, credits: null,
+        analytics: analyticsFixture("2026-08-19", tokens(50)), error: null, updatedAt: "2026-08-19T12:00:00Z"
+      } });
+      expect(store.usage.owner).toBe("a");
+      expect(store.usage.get(old.id)).toBeNull();
+      expect(store.usage.localRecord(old.id)?.record).toMatchObject({ dayState: "complete" });
+      expect(store.get("claude", "local", "2026-08-19")?.payload.totals.totalTokens).toBe(50);
+    } finally { store.close(); }
+  });
+
+  it.each([
+    ["pro", "pro"], ["pro+", "pro_plus"], ["pro plus", "pro_plus"], ["ultra", "ultra"], ["custom", "other"]
+  ])("preserves the Cursor %s plan through save and restore", (membership, plan) => {
+    const source = SqliteHistoryStore.open(":memory:");
+    const restored = SqliteHistoryStore.open(":memory:");
+    try {
+      const live = parseCursorUsage({ individualUsage: { plan: { totalPercentUsed: 40 } }, membershipType: membership }, new Date("2026-08-19T12:00:00Z"));
+      source.saveCapacity("cursor", "cursor-user", live);
+      const [saved] = source.usage.pending();
+      expect(saved.record).toMatchObject({ planKey: plan });
+      restored.usage.merge({ record: saved.record, revision: 1 });
+      expect(restored.latestCapacity("cursor")?.payload.identity?.plan).toBe(plan);
+    } finally { source.close(); restored.close(); }
+  });
+
   it("seals drafts before today and never empty-clobbers a sealed day", () => {
     const store = new MemoryHistoryStore("replica-1");
     const day = "2026-08-18";
@@ -75,6 +108,71 @@ describe("HistoryStore", () => {
     expect(composed.daily.find((day) => day.date === today)?.totalTokens).toBe(350);
   });
 
+  it("keeps pending versions across restart and does not dirty a repeated scan", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-pending-"));
+    directories.push(directory);
+    const filename = path.join(directory, "history.sqlite");
+    const first = SqliteHistoryStore.open(filename);
+    first.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(25) }));
+    const pending = first.usage.pending()[0];
+    first.close();
+    const second = SqliteHistoryStore.open(filename);
+    expect(second.usage.pending()[0].localVersion).toBe(pending.localVersion);
+    second.usage.acknowledge(pending, { record: pending.record, revision: 1 });
+    second.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(25), capturedAt: "2026-08-19T01:00:00Z" }));
+    expect(second.usage.pending()).toEqual([]);
+    second.close();
+  });
+
+  it("migrates usable legacy rows once, keeping local detail out of cloud records", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-migration-"));
+    directories.push(directory);
+    const filename = path.join(directory, "history.sqlite");
+    const db = openWritableSqlite(filename);
+    db.exec("CREATE TABLE history_day(id TEXT, provider_id TEXT, account_key TEXT, local_day TEXT, sealed INTEGER, change_seq INTEGER, updated_at TEXT, payload TEXT)");
+    db.run("INSERT INTO history_day VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ["legacy-id", "claude", "local", "2026-08-18", 1, 9, "2026-08-19T00:00:00Z", JSON.stringify(payload({ totals: tokens(25), source: "/private/path" }))]);
+    db.run("INSERT INTO history_day VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ["bad", "claude", "local", "2026-08-17", 1, 1, "2026-08-19T00:00:00Z", "invalid"]);
+    db.close();
+    const migrated = SqliteHistoryStore.open(filename);
+    expect(migrated.getRange("claude", "2026-08-17", "2026-08-19")).toHaveLength(1);
+    expect(migrated.get("claude", "local", "2026-08-18")?.payload.source).toBe("/private/path");
+    expect(JSON.stringify(migrated.usage.pending())).not.toContain("/private/path");
+    expect(migrated.usage.pending()[0].record).toMatchObject({ timeZone: null });
+    migrated.usage.selectAccount("a");
+    migrated.usage.claimLocal();
+    migrated.close();
+    const reopened = SqliteHistoryStore.open(filename);
+    reopened.usage.selectAccount("b");
+    expect(reopened.getRange("claude", "2026-08-17", "2026-08-19")).toEqual([]);
+    reopened.close();
+  });
+
+  it("persists limits even when there are no local session logs", () => {
+    const store = SqliteHistoryStore.open(":memory:");
+    try {
+      persistProviderHistory({ store, providerId: "claude", accountKey: "local", now: new Date("2026-08-19T12:00:00Z"), live: {
+        source: "oauth", windows: [{ kind: "session", label: "5-hour", usedPercent: 40, remainingPercent: 60 }],
+        identity: { plan: "pro" }, analytics: null, error: null, updatedAt: "2026-08-19T12:00:00Z"
+      } });
+      expect(store.getRange("claude", "2026-08-18", "2026-08-19")).toEqual([]);
+      expect(store.latestCapacity("claude")?.payload.windows[0].usedPercent).toBe(40);
+      expect(store.usage.pending()[0].record.kind).toBe("capacity_snapshot");
+    } finally { store.close(); }
+  });
+
+  it("deduplicates provider-account history across devices and keeps device logs separate", () => {
+    const a = SqliteHistoryStore.open(":memory:");
+    const b = SqliteHistoryStore.open(":memory:");
+    try {
+      const remote = payload({ totals: tokens(50), analyticsSource: "remote_usage" });
+      a.upsertDraft("cursor", "same-provider-account", "2026-08-19", remote);
+      b.upsertDraft("cursor", "same-provider-account", "2026-08-19", remote);
+      expect(a.usage.pending()[0].record.recordId).toBe(b.usage.pending()[0].record.recordId);
+      const first = a.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(10) }));
+      const second = b.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(10) }));
+      expect(first.id).not.toBe(second.id);
+    } finally { a.close(); b.close(); }
+  });
   it("persists a stable replica id and change sequence across sqlite reopen", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-history-"));
     directories.push(directory);
@@ -82,14 +180,14 @@ describe("HistoryStore", () => {
     const first = SqliteHistoryStore.open(databasePath);
     const replica = first.replicaId();
     first.sealDay("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18", payload({ totals: tokens(25) }));
-    const changes = first.changesSince(0);
+    const changes = first.usage.pending();
     expect(changes).toHaveLength(1);
     first.close();
 
     const second = SqliteHistoryStore.open(databasePath);
     expect(second.replicaId()).toBe(replica);
     expect(second.get("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18")?.payload.totals.totalTokens).toBe(25);
-    expect(second.changesSince(0)).toHaveLength(1);
+    expect(second.usage.pending()).toHaveLength(1);
     second.close();
   });
 
@@ -120,6 +218,72 @@ describe("HistoryStore", () => {
 });
 
 describe("EngineService history integration", () => {
+  it.each([false, true])("restores an absent provider while respecting explicit disable=%s", async (disabled) => {
+    const source = SqliteHistoryStore.open(":memory:");
+    const store = SqliteHistoryStore.open(":memory:");
+    try {
+      const engine = new EngineService([{
+        id: "cursor", name: "Cursor", isAvailable: async () => false,
+        refresh: async () => { throw new ProviderError("not_installed", "Connect Cursor on this device."); }
+      }], () => new Date("2026-08-19T12:00:00Z"), store);
+      await engine.handle({ id: "initial", method: "snapshot.get", params: {} });
+      if (disabled) await engine.handle({ id: "disable", method: "config.update", params: { provider: "cursor", enabled: false } });
+      source.upsertDraft("cursor", "cursor-user", "2026-08-19", payload({ totals: tokens(75), analyticsSource: "remote_usage" }));
+      store.usage.merge({ record: source.usage.pending()[0].record, revision: 1 });
+      for (const hydrateOnly of [true, false]) {
+        const response = await engine.handle({ id: "restored", method: "snapshot.get", params: { hydrateOnly } });
+        expect(response.ok).toBe(true);
+        if (!response.ok) continue;
+        const provider = validateDashboard(response.result).providers[0];
+        expect(provider.enabled).toBe(!disabled);
+        expect(provider.analytics?.totals.totalTokens ?? null).toBe(disabled ? null : 75);
+      }
+    } finally { source.close(); store.close(); }
+  });
+
+  it.each([
+    ["Asia/Tokyo", "2026-08-19", "2026-08-18T23:00:00Z"],
+    ["America/Los_Angeles", "2026-08-18", "2026-08-19T01:00:00Z"]
+  ])("hydrates cloud-only usage in its %s reporting timezone", async (timeZone, day, now) => {
+    vi.stubEnv("TZ", "UTC");
+    const source = SqliteHistoryStore.open(":memory:");
+    const store = SqliteHistoryStore.open(":memory:");
+    try {
+      source.upsertDraft("cursor", "cursor-user", day, payload({ timeZone, totals: tokens(75), analyticsSource: "remote_usage" }));
+      const record = source.usage.pending()[0].record;
+      store.usage.merge({ record, revision: 1 });
+      expect(store.reportingTimeZone("cursor", record.sourceId)).toBe(timeZone);
+      const engine = new EngineService([{
+        id: "cursor", name: "Cursor", refresh: async () => { throw new Error("not installed"); }
+      }], () => new Date(now), store);
+      const response = await engine.handle({ id: "restored", method: "snapshot.get", params: { hydrateOnly: true } });
+      expect(response.ok).toBe(true);
+      if (!response.ok) return;
+      const analytics = validateDashboard(response.result).providers[0].analytics;
+      expect(analytics?.today.totalTokens).toBe(75);
+      expect(analytics?.daily[0].date).toBe(day);
+      expect(store.usage.pending()).toEqual([]);
+    } finally { source.close(); store.close(); vi.unstubAllEnvs(); }
+  });
+
+  it("keeps restored history visible when the provider is not installed on the new device", async () => {
+    const store = SqliteHistoryStore.open(":memory:");
+    try {
+      store.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(75) }));
+      const engine = new EngineService([{
+        id: "claude", name: "Claude", isAvailable: async () => false,
+        refresh: async () => { throw new ProviderError("not_installed", "Connect Claude on this device."); }
+      }], () => new Date("2026-08-19T12:00:00Z"), store);
+      const response = await engine.handle({ id: "restore-view", method: "snapshot.get", params: {} });
+      expect(response.ok).toBe(true);
+      if (response.ok) {
+        const snapshot = validateDashboard(response.result);
+        expect(snapshot.providers[0].enabled).toBe(true);
+        expect(snapshot.providers[0].analytics?.totals.totalTokens).toBe(75);
+      }
+    } finally { store.close(); }
+  });
+
   it("serves sealed history when a later refresh fails", async () => {
     const store = new MemoryHistoryStore();
     const day = "2026-08-18";
@@ -561,17 +725,8 @@ describe("EngineService history integration", () => {
 
     const database = openWritableSqlite(databasePath);
     database.run(
-      `INSERT INTO history_day (
-         id, provider_id, account_key, local_day, sealed, change_seq, updated_at, payload_version, payload
-       ) VALUES (?, ?, ?, ?, 1, 99, ?, 1, ?)`,
-      [
-        "corrupt-row",
-        "claude",
-        HISTORY_LOCAL_ACCOUNT_KEY,
-        "2026-08-17",
-        "2026-08-19T00:00:00.000Z",
-        "{not-json"
-      ]
+      `INSERT INTO usage_record (owner, id, provider, day, payload) VALUES ('', ?, ?, ?, ?)`,
+      ["corrupt-row", "claude", "2026-08-17", "{not-json"]
     );
     database.close();
 

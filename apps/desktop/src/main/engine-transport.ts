@@ -3,6 +3,7 @@ import type { EngineProgressMessage, EngineRequest, EngineResponse } from "../en
 export interface EngineTransportHandlers {
   message(response: EngineResponse): void;
   progress?(progress: EngineProgressMessage): void;
+  historyChanged?(): void;
   diagnostic(message: string): void;
   exit(code: number): void;
 }

@@ -49,7 +49,8 @@ function isHistoryDayPayload(value: unknown): value is HistoryDayPayload {
 }
 
 export function isEmptyHistoryPayload(payload: HistoryDayPayload): boolean {
-  return payload.totals.totalTokens === 0
+  return payload.status !== "no_data"
+    && payload.totals.totalTokens === 0
     && payload.totals.requests === 0
     && payload.windows.length === 0
     && payload.hourly.every((entry) => entry.totalTokens === 0 && entry.requests === 0);
@@ -61,12 +62,12 @@ export function hasUsageTotals(payload: HistoryDayPayload): boolean {
     || payload.hourly.some((entry) => entry.totalTokens > 0 || entry.requests > 0);
 }
 
-/** Sealed rows stay put unless they were empty or a partial scan that a later scan improves. */
+/** Complete scans may correct history; incomplete scans cannot replace complete coverage. */
 export function canReplaceSealed(existing: HistoryDayPayload, incoming: HistoryDayPayload): boolean {
   if (isEmptyHistoryPayload(incoming)) return false;
   if (isEmptyHistoryPayload(existing)) return true;
-  if (existing.status !== "partial") return false;
   if (incoming.status === "available") return true;
+  if (existing.status !== "partial") return false;
   return incoming.totals.totalTokens > existing.totals.totalTokens
     || incoming.totals.requests > existing.totals.requests;
 }
@@ -98,6 +99,7 @@ export function extractDayPayload(
     source: string;
     capturedAt: string;
     includeCoverageWideBreakdowns: boolean;
+    timeZone?: string;
   }
 ): HistoryDayPayload {
   const dayTotals = analytics.daily.find((entry) => entry.date === day);
@@ -117,13 +119,14 @@ export function extractDayPayload(
   const models = modelsForDay(analytics.dailyModels, day);
   return {
     payloadVersion: HISTORY_DAY_PAYLOAD_VERSION,
+    timeZone: options.timeZone,
     accountKey: options.accountKey,
     windows: options.windows,
     identity: options.identity,
     credits: options.credits,
     source: options.source,
     capturedAt: options.capturedAt,
-    status: analytics.status,
+    status: analytics.status !== "partial" && dayTotals?.totalTokens === 0 && dayTotals.requests === 0 ? "no_data" : analytics.status,
     analyticsSource: analytics.source,
     totals,
     hourly,

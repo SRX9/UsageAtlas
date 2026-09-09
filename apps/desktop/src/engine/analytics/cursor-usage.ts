@@ -1,3 +1,4 @@
+import { localCalendarDay, shiftLocalDay } from "../history/days";
 import type { LocalUsageAnalytics, ProviderFailure } from "@usageatlas/contracts";
 import { ProviderError } from "../provider";
 import { fetchProviderJson, type FetchImplementation } from "../platform/http";
@@ -6,6 +7,7 @@ import { buildAnalytics, unavailableAnalytics, type UsageRecord } from "./local-
 export interface CursorUsageHistoryOptions {
   fetch?: FetchImplementation;
   historyDays?: number;
+  timeZone?: string;
   maxEvents?: number;
   pageSize?: number;
 }
@@ -55,6 +57,7 @@ export async function fetchCursorUsageHistory(
   const start = new Date(context.now);
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - (historyDays - 1));
+  if (options.timeZone) start.setTime(context.now.valueOf() - (historyDays + 1) * 86_400_000);
   const requestHeaders = {
     ...headers,
     "Content-Type": "application/json"
@@ -112,7 +115,8 @@ export async function fetchCursorUsageHistory(
     false,
     "remote_usage",
     "Cursor dashboard usage history could not be loaded completely.",
-    { start: localDay(start), end: localDay(context.now) }
+    { start: shiftLocalDay(localCalendarDay(context.now, options.timeZone), -(historyDays - 1)), end: localCalendarDay(context.now, options.timeZone) },
+    options.timeZone
   );
   return { ...analytics, projects: [] };
 }

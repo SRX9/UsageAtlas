@@ -12,18 +12,20 @@ const port = process.parentPort;
 if (!port) throw new Error("Engine utility process parent port is unavailable");
 
 const history = openHistoryStore(process.env.USAGEATLAS_HISTORY_DB);
+if (history instanceof SqliteHistoryStore) process.env.TZ = history.usage.setting("reporting-timezone")!;
 const engine = new EngineService(
   createProviderAdapters(),
   () => new Date(),
   history,
   (progress) => {
     port.postMessage({ type: "engine.progress", ...progress });
-  }
+  },
+  () => port.postMessage({ type: "engine.history-changed" })
 );
 let queue = Promise.resolve();
 
 port.on("message", (event) => {
-  queue = queue.then(async () => {
+  const respond = async () => {
     let response: EngineResponse;
     try {
       const request = parseEngineRequest(event.data);
@@ -41,7 +43,14 @@ port.on("message", (event) => {
     }
     port.postMessage(response);
     if (response.ok && isShutdown(event.data)) setImmediate(() => process.exit(0));
-  }).catch((error: unknown) => {
+  };
+  // Status only reads local state; it must not wait behind provider network requests.
+  const value = event.data as { method?: unknown; params?: { operation?: unknown } } | null;
+  if (value?.method === "cloud" && value.params?.operation === "status") {
+    void respond();
+    return;
+  }
+  queue = queue.then(respond).catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : "Engine failure"}\n`);
   });
 });

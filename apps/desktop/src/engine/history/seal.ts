@@ -12,18 +12,21 @@ export const HISTORY_BACKFILL_DAYS = 90;
 export const HISTORY_SNAPSHOT_DAYS = 90;
 
 export function persistProviderHistory(options: {
+  timeZone?: string;
   store: HistoryStore;
   providerId: string;
   accountKey: string;
   now: Date;
   live: Omit<DashboardProvider, "id" | "name" | "enabled">;
 }): LocalUsageAnalytics | null {
-  const today = localCalendarDay(options.now);
+  options.store.saveCapacity?.(options.providerId, options.accountKey, options.live);
+  const timeZone = options.timeZone ?? options.store.reportingTimeZone?.(options.providerId, options.accountKey);
+  const today = localCalendarDay(options.now, timeZone);
   options.store.sealDraftsBefore(options.providerId, today);
 
   const analytics = options.live.analytics;
   const canPersistAnalytics = analytics !== null
-    && (analytics.status === "available" || analytics.status === "partial");
+    && (analytics.status === "available" || analytics.status === "partial" || analytics.status === "no_data");
   const previousToday = options.store.get(options.providerId, options.accountKey, today);
   const preservedCapacity = preservedCapacityFields(options.live, previousToday?.payload ?? null);
 
@@ -35,6 +38,7 @@ export function persistProviderHistory(options: {
       const includeWide = day === today;
       const payload = extractDayPayload(analytics, day, {
         accountKey: options.accountKey,
+        timeZone,
         windows: day === today ? preservedCapacity.windows : [],
         identity: day === today ? preservedCapacity.identity : null,
         credits: day === today ? preservedCapacity.credits : null,
@@ -47,7 +51,7 @@ export function persistProviderHistory(options: {
         upsertTodayDraft(options, today, payload, preservedCapacity, previousToday);
         continue;
       }
-      if (!hasUsageTotals(payload) && payload.windows.length === 0) continue;
+      if (!hasUsageTotals(payload) && payload.windows.length === 0 && payload.status !== "no_data") continue;
       const previousDraft = options.store.get(options.providerId, options.accountKey, day);
       const sealedPayload: HistoryDayPayload = {
         ...payload,
@@ -62,6 +66,7 @@ export function persistProviderHistory(options: {
     if (!persistedToday) {
       const payload = extractDayPayload(analytics, today, {
         accountKey: options.accountKey,
+        timeZone,
         windows: preservedCapacity.windows,
         identity: preservedCapacity.identity,
         credits: preservedCapacity.credits,
@@ -80,7 +85,7 @@ export function persistProviderHistory(options: {
     options.providerId,
     options.accountKey,
     options.now,
-    canPersistAnalytics ? analytics : null
+    null
   );
 }
 
@@ -91,7 +96,7 @@ export function composeFromStore(
   now: Date,
   liveToday: LocalUsageAnalytics | null
 ): LocalUsageAnalytics | null {
-  const today = localCalendarDay(now);
+  const today = localCalendarDay(now, store.reportingTimeZone?.(providerId, accountKey));
   const startDay = shiftLocalDay(today, -(HISTORY_SNAPSHOT_DAYS - 1));
   const stored = store.getRange(providerId, startDay, today);
   if (stored.length === 0 && !liveToday) return null;
@@ -100,6 +105,7 @@ export function composeFromStore(
     stored,
     liveToday,
     currentAccountKey: accountKey,
+    timeZone: store.reportingTimeZone?.(providerId, accountKey),
     historyDays: HISTORY_SNAPSHOT_DAYS
   });
 }
@@ -110,8 +116,9 @@ export function historyDaysForAccount(
   accountKey: string,
   now: Date
 ): number {
-  const today = localCalendarDay(now);
+  const today = localCalendarDay(now, store.reportingTimeZone?.(providerId, accountKey));
   const startDay = shiftLocalDay(today, -(HISTORY_BACKFILL_DAYS - 1));
+  if (store.needsTimezoneRefresh?.(providerId, accountKey)) return HISTORY_BACKFILL_DAYS;
   const sealed = store.getRange(providerId, startDay, shiftLocalDay(today, -1))
     .filter((row) => row.accountKey === accountKey && row.sealed && hasUsageTotals(row.payload));
   if (sealed.length === 0) return HISTORY_BACKFILL_DAYS;
@@ -125,13 +132,13 @@ export function historyDaysForAccount(
 function uniqueUsageDays(analytics: LocalUsageAnalytics): string[] {
   const days = new Set<string>();
   for (const entry of analytics.daily) {
-    if (entry.totalTokens > 0 || entry.requests > 0) days.add(entry.date);
+    days.add(entry.date);
   }
   for (const entry of analytics.hourly ?? []) {
-    if (entry.totalTokens > 0 || entry.requests > 0) days.add(entry.date);
+    days.add(entry.date);
   }
   for (const entry of analytics.dailyModels) {
-    if (entry.totalTokens > 0 || entry.requests > 0) days.add(entry.date);
+    days.add(entry.date);
   }
   return [...days].sort();
 }
@@ -174,7 +181,7 @@ function upsertTodayDraft(
     identity: capacity.identity,
     credits: capacity.credits
   };
-  if (isEmptyHistoryPayload(withWindows) && previous && !isEmptyHistoryPayload(previous.payload)) {
+  if ((isEmptyHistoryPayload(withWindows) || withWindows.status === "no_data") && previous && hasUsageTotals(previous.payload)) {
     if (capacity.windows.length === 0) return;
     options.store.upsertDraft(options.providerId, options.accountKey, today, {
       ...previous.payload,

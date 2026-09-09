@@ -1,3 +1,4 @@
+import { CloudAccount } from "./cloud-account";
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import {
@@ -64,6 +65,7 @@ let usageCheckTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 let installPendingUpdate: (() => void) | null = null;
 let engine: EngineManager;
+let cloudAccount: CloudAccount;
 let preferences: PreferenceStore;
 let telemetry: DesktopTelemetry;
 let liveSnapshotPublish: Promise<DashboardSnapshot> | null = null;
@@ -327,6 +329,22 @@ function updateTrayMenu(snapshot: DashboardSnapshot | null = lastTraySnapshot): 
 }
 
 function registerIPC(): void {
+  ipcMain.handle(IPC.cloudStatus, (event) => {
+    assertTrustedSender(event);
+    return cloudAccount.status();
+  });
+  ipcMain.handle(IPC.cloudAction, async (event, action: unknown, options: unknown) => {
+    assertTrustedSender(event);
+    if (action === "sign-in") await cloudAccount.signIn();
+    else if (action === "sign-out") await cloudAccount.signOut();
+    else if (action === "save" || action === "restore") await cloudAccount.operation(action);
+    else if (action === "automatic" && options && typeof options === "object" && "enabled" in options && typeof options.enabled === "boolean") {
+      await cloudAccount.operation(action, { enabled: options.enabled });
+    } else if (action === "resolve" && options && typeof options === "object" && "recordId" in options && typeof options.recordId === "string" && "choice" in options && (options.choice === "local" || options.choice === "cloud")) {
+      await cloudAccount.operation(action, { recordId: options.recordId, choice: options.choice });
+    } else throw new Error("Invalid cloud action.");
+    return cloudAccount.status();
+  });
   ipcMain.handle(IPC.snapshot, (event) => {
     assertTrustedSender(event);
     return getSnapshotWithUsageAlerts();
@@ -534,6 +552,22 @@ if (squirrelStartup) {
     };
     mainWindow?.webContents.send(IPC.refreshProgress, payload);
   });
+  cloudAccount = new CloudAccount(engine, () => {
+    void engine.getHydratedSnapshot().then(snapshot => {
+      updateTrayMenu(snapshot);
+      mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
+    }).catch(() => undefined);
+  });
+  engine.onHistoryChanged(() => {
+    void engine.getHydratedSnapshot().then(snapshot => {
+      updateTrayMenu(snapshot);
+      mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
+    }).catch(() => undefined);
+  });
+  await cloudAccount.initialize().catch(() => undefined);
+  engine.onStatus(status => {
+    if (status === "ready") void cloudAccount.reconnect().catch(() => undefined);
+  });
   await engine.applyProviderPreferences(preferences.get().providerEnabled);
   registerIPC();
   createTray();
@@ -561,6 +595,7 @@ app.on("before-quit", () => {
   isQuitting = true;
   if (usageCheckTimer) clearTimeout(usageCheckTimer);
   usageCheckTimer = null;
+  cloudAccount?.close();
   void engine?.shutdown();
   void telemetry?.shutdown();
 });

@@ -6,7 +6,7 @@
 
 <p align="center">
   One desktop dashboard for your AI coding usage.<br>
-  See quota, resets, tokens, requests, and cost across Codex, Claude, Cursor, and OpenCode — read locally, never uploaded.
+  See quota, resets, tokens, requests, and cost across Codex, Claude, Cursor, and OpenCode. No account required.
 </p>
 
 <p align="center">
@@ -20,6 +20,9 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Windows, macOS, and Linux">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
+
+Use UsageAtlas without an account to track usage on your computer. If you want to keep a copy of your usage history
+and restore it after changing or losing a computer, you can create a free account and use cloud save.
 
 ## Screenshots
 
@@ -57,17 +60,37 @@ handling, and deterministic adapter tests.
 - History and insights across 7, 30, and 90 days by project, session, model, and tool
 - Usage alerts that fire a native notification before you run into a limit
 - Tray presence, launch at login, and system/light/dark themes
-- Local-first: no account, no sync, and no usage data leaves the machine
+- Local tracking with no account required
+- Optional free account to save usage history to the cloud and restore it on another computer
 - Sealed local history: completed days are stored on disk so past usage survives restarts and provider outages
 - Sandboxed renderer with no Node.js access, an allowlisted preload API, ASAR integrity, and Electron fuses
 
 ## Privacy
 
 Provider data is read from local files and provider APIs. Completed-day usage and capacity
-snapshots are sealed into a local history database in the app data directory. There is no
-UsageAtlas account and no cloud sync. An anonymous install count tells us how many people use
-the app; it never includes usage figures and can be switched off in Settings. Diagnostics are
-redacted before they are shown or copied.
+snapshots are stored in a local history database in the app data directory. Without signing in to
+UsageAtlas, your usage history stays on your computer.
+
+If you choose a free account, cloud saves store usage totals, estimated costs, hourly activity, public model
+breakdowns, and limits and plan information under that account. Project and session names, file paths, prompts,
+responses, raw logs, and coding-tool credentials are not included. Cloud saves contain usage summaries,
+so restoring them does not restore every local project or session detail.
+
+The optional anonymous install count is separate from cloud save. It never includes usage figures or your
+account name or email, and you can switch it off in Settings. Diagnostics are redacted before they are shown or copied.
+See the [privacy policy](https://usageatlas.com/privacy) and [terms of use](https://usageatlas.com/terms).
+
+## Optional free cloud save
+
+1. Open **Settings → Cloud save** in the desktop app.
+2. Sign in with Google or GitHub to create or use a free UsageAtlas account.
+3. Pending usage saves automatically once an hour while the app is running. You can turn off **Save automatically**
+   and use **Save to cloud** whenever you want. A previous automatic-save choice is remembered on this computer.
+4. On another computer, sign in to the same account and choose **Restore from cloud**.
+
+Only successfully saved history can be restored. Check that saving has completed before removing local app data
+or replacing your computer. Signing out stops future saves but does not delete existing cloud history. To request
+account and cloud-history deletion, email [privacy@usageatlas.com](mailto:privacy@usageatlas.com).
 
 ## Build from source
 

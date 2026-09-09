@@ -65,6 +65,10 @@ export class UtilityEngineTransport implements EngineTransport {
             handlers.progress?.(message);
             return;
           }
+          if (message && typeof message === "object" && message.type === "engine.history-changed" && Object.keys(message).length === 1) {
+            handlers.historyChanged?.();
+            return;
+          }
           handlers.message(parseEngineResponse(message));
         } catch (error) {
           handlers.diagnostic(error instanceof Error ? error.message : "Invalid engine response");

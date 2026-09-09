@@ -15,9 +15,16 @@
     "./fixtures/providers/claude-oauth-usage.json": "./fixtures/providers/claude-oauth-usage.json",
     "./fixtures/providers/codex-oauth-usage.json": "./fixtures/providers/codex-oauth-usage.json",
     "./fixtures/providers/cursor-usage-summary.json": "./fixtures/providers/cursor-usage-summary.json",
-    "./fixtures/providers/cursor-usage-events.json": "./fixtures/providers/cursor-usage-events.json"
+    "./fixtures/providers/cursor-usage-events.json": "./fixtures/providers/cursor-usage-events.json",
+    "./usage": "./src/usage.ts",
+    "./usage-record-v1.schema.json": "./usage-record-v1.schema.json",
+    "./fixtures/usage-record-v1.json": "./fixtures/usage-record-v1.json"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "ajv-formats": "^3.0.1",
+    "ajv": "8.18.0"
   }
 }

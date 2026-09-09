@@ -28,8 +28,9 @@ export function composeProviderAnalytics(options: {
   liveToday: LocalUsageAnalytics | null;
   currentAccountKey: string;
   historyDays: number;
+  timeZone?: string;
 }): LocalUsageAnalytics {
-  const today = localCalendarDay(options.now);
+  const today = localCalendarDay(options.now, options.timeZone);
   const coverageEnd = today;
   const requestedStart = shiftLocalDay(coverageEnd, -(options.historyDays - 1));
   const liveUsable = options.liveToday

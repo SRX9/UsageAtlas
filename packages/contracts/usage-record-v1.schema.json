@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usageatlas:usage-record:v1",
+  "title": "UsageAtlas shared usage record v1",
+  "description": "Shared usage records stored locally and saved to an account. Use validateUsageRecord from the contracts usage module for structural and semantic validation.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/usageDay"
+    },
+    {
+      "$ref": "#/$defs/capacitySnapshot"
+    }
+  ],
+  "$defs": {
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputTokens",
+        "cachedInputTokens",
+        "cacheCreationInputTokens",
+        "outputTokens",
+        "totalTokens",
+        "requests",
+        "estimatedCostMicrosUSD",
+        "unpricedTokens"
+      ],
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cachedInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cacheCreationInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requests": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "estimatedCostMicrosUSD": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unpricedTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "hour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "localHour",
+        "utcStart",
+        "totals"
+      ],
+      "properties": {
+        "localHour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "utcStart": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "totals": {
+          "$ref": "#/$defs/totals"
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelKey",
+        "totals"
+      ],
+      "properties": {
+        "modelKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[a-z0-9][a-z0-9._:/-]*$",
+          "description": "Must also match the shared approved public-model catalog, or be other. Pattern validation alone does not establish a safe identifier."
+        },
+        "totals": {
+          "$ref": "#/$defs/totals"
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "labelKey",
+        "durationMinutes",
+        "usedPercent",
+        "resetAt"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "session",
+            "weekly",
+            "plan",
+            "auto",
+            "api",
+            "other"
+          ]
+        },
+        "labelKey": {
+          "enum": [
+            "duration",
+            "session",
+            "weekly",
+            "plan",
+            "auto_composer",
+            "api",
+            "requests",
+            "other"
+          ]
+        },
+        "durationMinutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 525600
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usedPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "resetAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "usageDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "recordId",
+        "sourceId",
+        "providerId",
+        "kind",
+        "localDay",
+        "timeZone",
+        "dayState",
+        "observedAt",
+        "collectionMethod",
+        "status",
+        "totals",
+        "hourly",
+        "models"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "recordId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "providerId": {
+          "enum": [
+            "codex",
+            "claude",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "kind": {
+          "const": "usage_day"
+        },
+        "localDay": {
+          "type": "string",
+          "format": "date",
+          "maxLength": 10
+        },
+        "timeZone": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Must also validate against IANA timezone identifiers. Null for legacy history without reliable provenance."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dayState": {
+          "enum": [
+            "open",
+            "complete"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "collectionMethod": {
+          "enum": [
+            "local_activity",
+            "provider_history"
+          ]
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "no_data",
+            "unavailable"
+          ]
+        },
+        "totals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/totals"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hourly": {
+          "anyOf": [
+            {
+              "type": "array",
+              "maxItems": 26,
+              "items": {
+                "$ref": "#/$defs/hour"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "models": {
+          "anyOf": [
+            {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "$ref": "#/$defs/model"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "capacitySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "recordId",
+        "sourceId",
+        "providerId",
+        "kind",
+        "observedAt",
+        "status",
+        "planKey",
+        "windows"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "recordId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "providerId": {
+          "enum": [
+            "codex",
+            "claude",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "kind": {
+          "const": "capacity_snapshot"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "planKey": {
+          "anyOf": [
+            {
+              "enum": [
+                "free",
+                "plus",
+                "pro",
+                "pro_plus",
+                "max",
+                "ultra",
+                "team",
+                "business",
+                "enterprise",
+                "other"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "windows": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/window"
+          }
+        }
+      }
+    }
+  }
+}

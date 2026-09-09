@@ -119,6 +119,7 @@ export const HISTORY_DAY_PAYLOAD_VERSION = 1 as const;
 
 /** One provider-login's usage and capacity for one local calendar day. Sync unit. */
 export interface HistoryDayPayload {
+  timeZone?: string | null;
   payloadVersion: typeof HISTORY_DAY_PAYLOAD_VERSION;
   accountKey: string;
   windows: DashboardWindow[];

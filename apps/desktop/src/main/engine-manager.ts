@@ -35,6 +35,11 @@ export class EngineManager {
     return () => this.events.off("progress", listener);
   }
 
+  onHistoryChanged(listener: () => void): () => void {
+    this.events.on("history-changed", listener);
+    return () => this.events.off("history-changed", listener);
+  }
+
   async getHydratedSnapshot(): Promise<DashboardSnapshot> {
     return validateDashboard(await this.request("snapshot.get", { hydrateOnly: true }));
   }
@@ -69,6 +74,10 @@ export class EngineManager {
         this.record(`Ignored an unsupported stored provider preference: ${providerID}`);
       }
     }
+  }
+
+  async cloud(params: Record<string, JsonValue>): Promise<JsonValue> {
+    return this.request("cloud", params, 300_000);
   }
 
   getDiagnostics(): EngineDiagnostics {
@@ -129,6 +138,7 @@ export class EngineManager {
     this.starting = transport.start({
       message: (response) => this.acceptResponse(response),
       progress: (progress) => this.events.emit("progress", progress),
+      historyChanged: () => this.events.emit("history-changed"),
       diagnostic: (message) => this.record(message),
       exit: (code) => this.handleExit(transport, code)
     }).then(() => {

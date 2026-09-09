@@ -1,3 +1,4 @@
+import { CloudSettings } from "./CloudSettings";
 import type { DashboardProvider } from "@usageatlas/contracts";
 import { Button, Card, Label, Radio, RadioGroup, Skeleton, Spinner, Switch } from "@heroui/react";
 import type { BackgroundImagePreference, BuiltInBackgroundId, DesktopPreferences } from "../../shared/desktop-api";
@@ -74,6 +75,7 @@ export function Settings({
         </Card>
       ) : (
         <div className="mt-8 grid gap-5">
+          <CloudSettings />
           <Card variant="transparent">
             <Card.Header>
               <Card.Title>Appearance</Card.Title>
@@ -233,7 +235,7 @@ export function Settings({
             <Card.Content className="atlas-settings-list mt-2">
               <SettingRow
                 checked={preferences.anonymousAnalytics}
-                description="Completely anonymous. It only counts this general app analytics so we know how many people are using the app. Nothing else leaves your computer."
+                description="Completely anonymous. It only counts this general app analytics so we know how many people are using the app. Cloud usage saves are controlled separately above."
                 label="Allow General App analytics in the count"
                 onChange={(anonymousAnalytics) =>
                   onUpdate({ anonymousAnalytics })

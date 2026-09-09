@@ -1,3 +1,4 @@
+import { localCalendarDay } from "../history/days";
 import type {
   LocalUsageAnalytics,
   ProviderFailure,
@@ -616,9 +617,12 @@ export function buildAnalytics(
   partial: boolean,
   source: LocalUsageAnalytics["source"] = "local_sessions",
   partialMessage = "Some local session logs were skipped or could not be read.",
-  explicitCoverage?: { start: string; end: string }
+  explicitCoverage?: { start: string; end: string },
+  timeZone?: string
 ): LocalUsageAnalytics {
-  const requestedCoverageEnd = localDay(now);
+  const requestedCoverageEnd = localCalendarDay(now, timeZone);
+  const hourFormat = timeZone ? new Intl.DateTimeFormat("en", { timeZone, hour: "2-digit", hourCycle: "h23" }) : null;
+  if (timeZone) allRecords = allRecords.map(record => ({ ...record, day: localCalendarDay(new Date(record.timestamp), timeZone) }));
   const requestedCoverageStart = shiftDay(requestedCoverageEnd, -(historyDays - 1));
   const records = allRecords.filter(
     (record) => record.day >= requestedCoverageStart && record.day <= requestedCoverageEnd
@@ -647,7 +651,7 @@ export function buildAnalytics(
   for (const record of records) {
     addRecord(totals, record);
     addBreakdown(days, record.day, record.day, record);
-    const hourKey = `${record.day}T${String(new Date(record.timestamp).getHours()).padStart(2, "0")}`;
+    const hourKey = `${record.day}T${String(hourFormat ? Number(hourFormat.format(new Date(record.timestamp))) : new Date(record.timestamp).getHours()).padStart(2, "0")}`;
     addBreakdown(hours, hourKey, hourKey, record);
     addBreakdown(models, record.model, record.model, record);
     addBreakdown(modelDays, `${record.day} ${record.model}`, record.model, record);

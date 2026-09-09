@@ -22,7 +22,7 @@ function defaultPreferences(): StoredPreferences {
   return {
     backgroundImage: DEFAULT_BACKGROUND_IMAGE,
     customBackgroundName: null,
-    launchAtLogin: false,
+    launchAtLogin: true,
     minimizeToTray: true,
     providerEnabled: {},
     limitOrder: [],
@@ -139,7 +139,9 @@ export class PreferenceStore {
   }
 
   private applyLoginItemSetting(openAtLogin: boolean): void {
-    if (process.platform === "win32" && app.isPackaged) {
+    // Development runs would register the bare Electron executable at login.
+    if (!app.isPackaged) return;
+    if (process.platform === "win32") {
       const executableName = path.basename(process.execPath);
       const squirrelStub = path.resolve(path.dirname(process.execPath), "..", executableName);
       app.setLoginItemSettings({ openAtLogin, path: squirrelStub });

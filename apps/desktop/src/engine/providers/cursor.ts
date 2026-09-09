@@ -136,6 +136,7 @@ async function refreshCursor(
   const analyticsPromise = scanCursorUsageHistory(context, headers, {
     fetch: options.fetch,
     historyDays,
+    timeZone: context.reportingTimeZoneForAccount?.(credential.userID),
     maxEvents: options.maxEvents,
     pageSize: options.pageSize
   });

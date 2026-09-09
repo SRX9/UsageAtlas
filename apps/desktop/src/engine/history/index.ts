@@ -1,4 +1,4 @@
-export type { HistoryStore, HistorySyncAdapter } from "./types";
+export type { HistoryStore } from "./types";
 export { MemoryHistoryStore } from "./memory-store";
 export { SqliteHistoryStore } from "./sqlite-store";
 export { composeProviderAnalytics, resolveAccountKey } from "./compose";

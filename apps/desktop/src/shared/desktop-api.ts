@@ -75,6 +75,8 @@ export interface RefreshProgress {
 }
 
 export interface UsageAtlasDesktopAPI {
+  getCloudStatus(): Promise<CloudStatus>;
+  cloudAction(action: CloudAction, options?: CloudActionOptions): Promise<CloudStatus>;
   getCustomBackground(): Promise<string | null>;
   chooseCustomBackground(): Promise<BackgroundImageSelection | null>;
   getSnapshot(): Promise<DashboardSnapshot>;
@@ -91,6 +93,8 @@ export interface UsageAtlasDesktopAPI {
 }
 
 export const IPC = {
+  cloudStatus: "cloud:status",
+  cloudAction: "cloud:action",
   getCustomBackground: 'background:get-custom',
   chooseCustomBackground: 'background:choose-custom',
   snapshot: "dashboard:snapshot",
@@ -105,3 +109,27 @@ export const IPC = {
   refreshProgress: "dashboard:refresh-progress",
   openExternal: "shell:open-external"
 } as const;
+
+export interface CloudProgress {
+  operation: "save" | "restore";
+  phase: "reading" | "saving";
+  completed: number;
+  total: number | null;
+}
+
+export interface UsageCloudState {
+  accountId: string | null;
+  automatic: boolean;
+  pending: number;
+  busy: boolean;
+  progress: CloudProgress | null;
+  lastCompleted: "save" | "restore" | null;
+  error: string | null;
+  conflicts: { recordId: string; provider: string; day: string | null; localTokens: number | null; cloudTokens: number | null }[];
+}
+export interface CloudStatus extends UsageCloudState {
+  account: { id: string; email: string } | null;
+  loginCode: string | null;
+}
+export type CloudAction = "sign-in" | "sign-out" | "save" | "restore" | "automatic" | "resolve";
+export interface CloudActionOptions { enabled?: boolean; recordId?: string; choice?: "local" | "cloud" }
