@@ -2,6 +2,7 @@ import fixtureSnapshot from "@usageatlas/contracts/fixtures/dashboard-v2.json";
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  analyticsIssue,
   baselinePercent,
   buildBaseline,
   buildPeriodUsage,
@@ -65,26 +66,42 @@ describe("personal analytics", () => {
     })).toEqual({ freshInput: 600, cacheRead: 300, cacheCreated: 100, output: 200 });
   });
 
-  it("hides period cost when that provider's scan suppressed cost", () => {
+  it("shows the available cost for partial history with an explanation", () => {
     const partial = structuredClone(snapshot);
     const analytics = partial.providers[0]?.analytics;
     if (!analytics) throw new Error("Analytics fixture is missing.");
     analytics.status = "partial";
-    analytics.totals.estimatedCostUSD = null;
-    analytics.today.estimatedCostUSD = null;
-    for (const day of analytics.daily) day.estimatedCostUSD = null;
     analytics.error = {
       code: "analytics_partial",
       message: "Some history was skipped.",
       retryable: true
     };
     const period = buildPeriodUsage(partial, "codex", "2026-07-17", "2026-07-17");
-    expect(period.totals.estimatedCostUSD).toBeNull();
+    expect(period.totals.estimatedCostUSD).toBeCloseTo(0.0022, 8);
+    expect(period.providerRows[0]?.totals.estimatedCostUSD).toBeCloseTo(0.0022, 8);
     expect(period.partialProviders).toEqual(["Codex"]);
     expect(costPresentation(period)).toMatchObject({
-      label: "Cost estimate",
-      unavailableReason: expect.stringContaining("Codex")
+      label: "API-rate estimate",
+      detail: expect.stringContaining("Codex history is partial"),
+      unavailableReason: null
     });
+    expect(analyticsIssue(partial, "codex")?.message).toBe(
+      "Codex usage history is partial. Totals and cost estimates include only the entries we could read."
+    );
+  });
+
+  it("keeps cost unavailable when partial history has no priced usage", () => {
+    const partial = structuredClone(snapshot);
+    const analytics = partial.providers[0]?.analytics;
+    if (!analytics) throw new Error("Analytics fixture is missing.");
+    analytics.status = "partial";
+    for (const day of analytics.daily) day.estimatedCostUSD = null;
+
+    const period = buildPeriodUsage(partial, "codex", "2026-07-17", "2026-07-17");
+    expect(period.totals.estimatedCostUSD).toBeNull();
+    expect(costPresentation(period).unavailableReason).toBe(
+      "No priced usage is available. Codex history is partial."
+    );
   });
 
   it("keeps priced tools visible when another provider is partial or unpriced", () => {
@@ -122,7 +139,7 @@ describe("personal analytics", () => {
       if (day.date === "2026-07-17") day.unpricedTokens = 31_800_000;
     }
     const period = buildPeriodUsage(unpriced, "codex", "2026-07-17", "2026-07-17");
-    expect(period.totals.estimatedCostUSD).toBeCloseTo(0.0022);
+    expect(period.totals.estimatedCostUSD).toBeCloseTo(0.0022, 8);
     expect(period.totals.unpricedTokens).toBe(31_800_000);
     expect(costPresentation(period)).toMatchObject({
       unavailableReason: null,

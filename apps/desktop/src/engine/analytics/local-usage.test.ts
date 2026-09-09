@@ -99,20 +99,25 @@ describe("local usage analytics", () => {
     expect(analytics.totals.totalTokens).toBe(1_330);
   });
 
-  it("names the damaged entries instead of reporting an unexplained partial history", async () => {
+  it("skips a damaged entry and retains all usage and costs from readable entries", async () => {
     const home = await createHome();
     const sessions = path.join(home, ".codex", "sessions", "2026", "07", "17");
     await mkdir(sessions, { recursive: true });
     const complete = codexSession.map((entry) => JSON.stringify(entry)).join("\n");
-    await writeFile(path.join(sessions, "damaged.jsonl"), `{"type":"event_msg","payl\n${complete}\n`);
+    const file = path.join(sessions, "damaged.jsonl");
+    const scanner = new LocalUsageScanner({ homeDirectory: home, environment: {} });
+    await writeFile(file, `${complete}\n`);
+    const readable = await scanner.scan("codex", context());
+    await writeFile(file, `{"type":"event_msg","payl\n${complete}\n`);
 
-    const analytics = await new LocalUsageScanner({ homeDirectory: home, environment: {} })
-      .scan("codex", context());
+    const analytics = await scanner.scan("codex", context());
 
     expect(analytics.status).toBe("partial");
+    expect({ ...analytics, status: readable.status, error: readable.error }).toEqual(readable);
+    expect(analytics.totals.estimatedCostUSD).toBeGreaterThan(0);
     expect(analytics.error?.code).toBe("analytics_partial");
     expect(analytics.error?.message).toBe(
-      "1 log entry could not be parsed. This usually clears on the next refresh; if it does not, those logs are damaged and deleting them restores the rest of the history."
+      "1 log entry could not be parsed. Totals and cost estimates include the entries that could be read."
     );
   });
 
@@ -127,8 +132,9 @@ describe("local usage analytics", () => {
       .scan("codex", context());
 
     expect(analytics.status).toBe("partial");
+    expect(analytics.totals.estimatedCostUSD).toBeGreaterThan(0);
     expect(analytics.error?.message).toBe(
-      "More than 1 session files were found, so the oldest ones were not scanned. Delete or archive old session logs to bring the full history back."
+      "More than 1 session files were found. Totals and cost estimates include only the scanned files."
     );
   });
 

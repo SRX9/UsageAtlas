@@ -144,10 +144,7 @@ export function buildPeriodUsage(
     return {
       id: provider.id,
       name: provider.name,
-      totals: {
-        ...totals,
-        estimatedCostUSD: provider.analytics?.status === "partial" ? null : totals.estimatedCostUSD
-      }
+      totals
     };
   }).sort((left, right) => right.totals.totalTokens - left.totals.totalTokens);
   const coverageStart = reporting.reduce<string | null>((earliest, provider) => {
@@ -228,9 +225,9 @@ export function costPresentation(period: PeriodUsage): CostPresentation {
     : null;
   if (period.totals.estimatedCostUSD === null) {
     const reason = partialNote
-      ? `Cost hidden because ${partialNote}.`
+      ? `No priced usage is available. ${partialNote}.`
       : unpricedNote
-        ? `Cost hidden because ${unpricedNote}.`
+        ? `Cost unavailable because ${unpricedNote}.`
         : "No verifiable cost is available for this selection.";
     return { label: "Cost estimate", detail: reason, unavailableReason: reason };
   }
@@ -260,7 +257,7 @@ export function analyticsIssue(snapshot: DashboardSnapshot, scope: ProviderScope
   }
   if (partial.length > 0) {
     return {
-      message: `${joinNames(partial.map((provider) => provider.name))} usage history is partial. Token totals may be incomplete, and cost is hidden.`,
+      message: `${joinNames(partial.map((provider) => provider.name))} usage history is partial. Totals and cost estimates include only the entries we could read.`,
       detail: analyticsDetail(partial),
       tone: "warning"
     };

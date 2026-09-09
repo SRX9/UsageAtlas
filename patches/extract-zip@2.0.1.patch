@@ -1,0 +1,48 @@
+diff --git a/index.js b/index.js
+index 23384ea..49c650a 100644
+--- a/index.js
++++ b/index.js
+@@ -1,6 +1,6 @@
+ const debug = require('debug')('extract-zip')
+ // eslint-disable-next-line node/no-unsupported-features/node-builtins
+-const { createWriteStream, promises: fs } = require('fs')
++const { createWriteStream, constants, promises: fs } = require('fs')
+ const getStream = require('get-stream')
+ const path = require('path')
+ const { promisify } = require('util')
+@@ -58,7 +58,7 @@ class Extractor {
+           const canonicalDestDir = await fs.realpath(destDir)
+           const relativeDestDir = path.relative(this.opts.dir, canonicalDestDir)
+ 
+-          if (relativeDestDir.split(path.sep).includes('..')) {
++          if (path.isAbsolute(relativeDestDir) || relativeDestDir.split(path.sep).includes('..')) {
+             throw new Error(`Out of bound path "${canonicalDestDir}" found while processing file ${entry.fileName}`)
+           }
+ 
+@@ -126,10 +126,25 @@ class Extractor {
+ 
+     if (symlink) {
+       const link = await getStream(readStream)
++      // Keep archive symlinks inside the extraction root, including dangling links.
++      const target = path.resolve(path.dirname(dest), link)
++      const relativeTarget = path.relative(this.opts.dir, target)
++      if (path.isAbsolute(link) || path.isAbsolute(relativeTarget) || relativeTarget.split(path.sep).includes('..')) {
++        throw new Error('Out of bound symlink target: ' + link)
++      }
+       debug('creating symlink', link, dest)
+       await fs.symlink(link, dest)
+     } else {
+-      await pipeline(readStream, createWriteStream(dest, { mode: procMode }))
++      // Never truncate through an existing or archive-created leaf symlink.
++      const existing = await fs.lstat(dest).catch(err => {
++        if (err.code !== 'ENOENT') throw err
++      })
++      if (existing && existing.isSymbolicLink()) {
++        readStream.destroy()
++        throw new Error('Refusing to write through symlink: ' + dest)
++      }
++      const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW || 0)
++      await pipeline(readStream, createWriteStream(dest, { mode: procMode, flags }))
+     }
+   }
+ 

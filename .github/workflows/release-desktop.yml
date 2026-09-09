@@ -173,12 +173,14 @@ jobs:
       - run: bun run build
       - name: Audit shipped dependencies
         if: ${{ runner.os == 'Linux' }}
-        # Build-only devDependencies with no patched release yet; drop each flag when one ships.
+        # image-size: build-only, no upstream fix. extract-zip: patched and regression-tested
+        # by bun run test; version-only audits cannot recognize patches/extract-zip@2.0.1.patch.
         run: >-
           bun audit --audit-level=high
           --ignore=GHSA-w3rx-r6r6-pgpr
           --ignore=GHSA-5p2g-fcmc-qvqq
           --ignore=GHSA-jmr9-qjv8-65gv
+          --ignore=GHSA-7pqw-9j4j-h8q3
 
   windows:
     name: Windows x64

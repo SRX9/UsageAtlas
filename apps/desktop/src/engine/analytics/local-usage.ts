@@ -233,7 +233,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
  */
 function scanGapMessage(gaps: ScanGaps, maxFiles: number): string | null {
   if (gaps.truncated) {
-    return `More than ${maxFiles.toLocaleString("en-US")} session files were found, so the oldest ones were not scanned. Delete or archive old session logs to bring the full history back.`;
+    return `More than ${maxFiles.toLocaleString("en-US")} session files were found. Totals and cost estimates include only the scanned files.`;
   }
   const reasons: string[] = [];
   if (gaps.unreadableDirectories > 0) {
@@ -246,7 +246,7 @@ function scanGapMessage(gaps: ScanGaps, maxFiles: number): string | null {
     reasons.push(`${countLabel(gaps.skippedLines, "log entry", "log entries")} could not be parsed`);
   }
   if (reasons.length === 0) return null;
-  return `${capitalize(joinReasons(reasons))}. This usually clears on the next refresh; if it does not, those logs are damaged and deleting them restores the rest of the history.`;
+  return `${capitalize(joinReasons(reasons))}. Totals and cost estimates include the entries that could be read.`;
 }
 
 function countLabel(count: number, singular: string, plural = `${singular}s`): string {
@@ -689,13 +689,13 @@ export function buildAnalytics(
   } satisfies ProviderFailure : null;
   const daily: UsageDailyMetric[] = [...days.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([date, value]) => ({ date, ...finalizeTotals(value.totals, partial) }));
+    .map(([date, value]) => ({ date, ...finalizeTotals(value.totals) }));
   const hourly: UsageHourlyMetric[] = [...hours.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => ({
       date: key.slice(0, 10),
       hour: Number(key.slice(11)),
-      ...finalizeTotals(value.totals, partial)
+      ...finalizeTotals(value.totals)
     }));
   // Trimmed by size rather than by date so a busy model keeps its whole history when
   // the cap bites; the day- and range-scoped model mixes read from these rows.
@@ -704,7 +704,7 @@ export function buildAnalytics(
       date: key.slice(0, 10),
       id: value.label,
       label: value.label,
-      ...finalizeTotals(value.totals, partial)
+      ...finalizeTotals(value.totals)
     }))
     .sort(compareUsage)
     .slice(0, MAX_DAILY_MODELS)
@@ -715,7 +715,7 @@ export function buildAnalytics(
       label: value.label,
       path: value.path,
       modelIDs: [...value.models].sort(),
-      ...finalizeTotals(value.totals, partial)
+      ...finalizeTotals(value.totals)
     }))
     .sort(compareUsage)
     .slice(0, MAX_PROJECTS);
@@ -726,7 +726,7 @@ export function buildAnalytics(
       lastActivity: value.lastActivity,
       project: value.project,
       modelIDs: [...value.models].sort(),
-      ...finalizeTotals(value.totals, partial)
+      ...finalizeTotals(value.totals)
     }))
     .sort((left, right) => right.lastActivity.localeCompare(left.lastActivity))
     .slice(0, MAX_SESSIONS);
@@ -740,17 +740,17 @@ export function buildAnalytics(
     updatedAt: now.toISOString(),
     filesScanned,
     recordsProcessed: records.length,
-    totals: finalizeTotals(totals, partial),
+    totals: finalizeTotals(totals),
     today: days.has(requestedCoverageEnd)
-      ? finalizeTotals(days.get(requestedCoverageEnd)?.totals ?? mutableTotals(), partial)
+      ? finalizeTotals(days.get(requestedCoverageEnd)?.totals ?? mutableTotals())
       : emptyTotals(),
     daily,
     hourly,
-    models: finalizeBreakdowns(models, 200, partial),
+    models: finalizeBreakdowns(models, 200),
     dailyModels,
     projects: projectRows,
     sessions: sessionRows,
-    serviceTiers: finalizeBreakdowns(serviceTiers, 10, partial),
+    serviceTiers: finalizeBreakdowns(serviceTiers, 10),
     error
   };
 }
@@ -786,11 +786,10 @@ function addRecord(target: MutableTotals, record: UsageRecord): void {
 
 function finalizeBreakdowns(
   values: Map<string, MutableBreakdown>,
-  limit = 200,
-  suppressCost = false
+  limit = 200
 ): UsageBreakdown[] {
   return [...values.entries()]
-    .map(([id, value]) => ({ id, label: value.label, ...finalizeTotals(value.totals, suppressCost) }))
+    .map(([id, value]) => ({ id, label: value.label, ...finalizeTotals(value.totals) }))
     .sort(compareUsage)
     .slice(0, limit);
 }
@@ -814,7 +813,7 @@ function mutableTotals(): MutableTotals {
   };
 }
 
-function finalizeTotals(value: MutableTotals, suppressCost = false): UsageTotals {
+function finalizeTotals(value: MutableTotals): UsageTotals {
   return {
     inputTokens: value.inputTokens,
     cachedInputTokens: value.cachedInputTokens,
@@ -822,7 +821,7 @@ function finalizeTotals(value: MutableTotals, suppressCost = false): UsageTotals
     outputTokens: value.outputTokens,
     totalTokens: value.totalTokens,
     requests: value.requests,
-    estimatedCostUSD: !suppressCost && value.pricedRequests > 0
+    estimatedCostUSD: value.pricedRequests > 0
       ? roundCost(value.estimatedCostUSD)
       : null,
     unpricedTokens: value.unpricedTokens
