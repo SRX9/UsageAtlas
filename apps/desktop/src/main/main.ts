@@ -32,7 +32,8 @@ import { EngineManager } from "./engine-manager";
 import { PreferenceStore } from "./preferences";
 import { DesktopTelemetry } from "./telemetry";
 import { trayLimitLabels } from "./tray-limits";
-import { configureAutoUpdates } from "./updates";
+import { configureAutoUpdates, type DesktopUpdater } from "./updates";
+import { DOWNLOAD_PAGE_URL } from "./update-feed";
 import {
   createUsageAlertNotification,
   UsageAlertDeliveryLog,
@@ -79,6 +80,7 @@ let cloudAccount: CloudAccount;
 let preferences: PreferenceStore;
 let telemetry: DesktopTelemetry;
 let dashboard: DashboardSession;
+let updates: DesktopUpdater;
 
 const activeUsageNotifications = new Set<Notification>();
 let usageAlertEvaluator = new UsageAlertEvaluator();
@@ -302,6 +304,20 @@ function updateTrayMenu(snapshot: DashboardSnapshot | null = lastTraySnapshot): 
 }
 
 function registerIPC(): void {
+  ipcMain.handle(IPC.getUpdateState, (event) => {
+    assertTrustedSender(event);
+    return updates.getState();
+  });
+  ipcMain.handle(IPC.checkForUpdates, (event) => {
+    assertTrustedSender(event);
+    return updates.check();
+  });
+  ipcMain.handle(IPC.installUpdate, async (event) => {
+    assertTrustedSender(event);
+    if (updates.getState().status === "ready" && installPendingUpdate) installPendingUpdate();
+    else if (updates.getState().status === "available") await shell.openExternal(DOWNLOAD_PAGE_URL);
+    else throw new Error("No update is ready to install.");
+  });
   ipcMain.handle(IPC.cloudStatus, (event) => {
     assertTrustedSender(event);
     return cloudAccount.status();
@@ -450,30 +466,6 @@ function isTrayLimitPatch(value: unknown): boolean {
     && entries.every(([key, shown]) => isLimitKey(key) && typeof shown === "boolean");
 }
 
-/**
- * A downloaded update is staged but not live: Squirrel.Mac only installs on
- * `quitAndInstall`, and a restart is what swaps the running Windows build.
- */
-async function promptToInstallUpdate(): Promise<void> {
-  const install = installPendingUpdate;
-  if (!install || process.env.USAGEATLAS_SMOKE_TEST === "1") return;
-  const options: Electron.MessageBoxOptions = {
-    type: "question",
-    title: "Update ready",
-    message: "A new version of UsageAtlas is ready to install.",
-    detail: "Restarting takes a moment. You can also restart later from the tray menu.",
-    buttons: ["Restart now", "Later"],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true
-  };
-  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const result = owner
-    ? await dialog.showMessageBox(owner, options)
-    : await dialog.showMessageBox(options);
-  if (result.response === 0) install();
-}
-
 async function registerApplicationProtocol(): Promise<void> {
   const rendererRoot = path.resolve(__dirname, "../renderer", MAIN_WINDOW_VITE_NAME);
   protocol.handle("app", (request) => {
@@ -536,17 +528,25 @@ if (squirrelStartup) {
   createTray();
   mainWindow = createWindow();
   telemetry.capture("desktop_app_opened");
-  configureAutoUpdates({
+  updates = configureAutoUpdates({
     capture: (event) => telemetry.capture(event),
+    onStateChange: (state) => {
+      if (state.status === "error") {
+        if (installPendingUpdate) isQuitting = false;
+        installPendingUpdate = null;
+        updateTrayMenu();
+      }
+      mainWindow?.webContents.send(IPC.updateStateChanged, state);
+    },
     onUpdateReady: (install) => {
       // The close handler keeps the window alive when minimize-to-tray is on,
       // which would stall the Squirrel restart.
       installPendingUpdate = () => {
+        if (isQuitting) return;
         isQuitting = true;
-        install();
+        try { install(); } catch (error) { isQuitting = false; throw error; }
       };
       updateTrayMenu();
-      void promptToInstallUpdate();
     }
   });
   scheduleBackgroundUsageCheck();

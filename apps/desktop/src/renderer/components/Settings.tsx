@@ -1,7 +1,8 @@
+import { UpdateSettings } from "./UpdateControls";
 import { CloudSettings } from "./CloudSettings";
 import type { DashboardProvider } from "@usageatlas/contracts";
 import { Button, Card, Label, Radio, RadioGroup, Skeleton, Spinner, Switch } from "@heroui/react";
-import type { BackgroundImagePreference, BuiltInBackgroundId, DesktopPreferences } from "../../shared/desktop-api";
+import type { BackgroundImagePreference, BuiltInBackgroundId, DesktopPreferences, DesktopUpdateState } from "../../shared/desktop-api";
 import { DEFAULT_BACKGROUND_IMAGE, isBackgroundImagePreference } from "../../shared/desktop-api";
 import { DESKTOP_VERSION } from "../../shared/version";
 import { ExternalIcon, RefreshIcon } from "../icons";
@@ -10,6 +11,9 @@ import { BUILT_IN_WALLPAPERS } from "../wallpapers";
 import { ProviderLogo } from "./ProviderLogo";
 
 interface SettingsProps {
+  updateState: DesktopUpdateState | null;
+  onCheckForUpdates(): Promise<void>;
+  onInstallUpdate(): Promise<void>;
   preferences: DesktopPreferences | null;
   backgroundError: string | null;
   customBackgroundUrl: string | null;
@@ -25,6 +29,9 @@ interface SettingsProps {
 }
 
 export function Settings({
+  updateState,
+  onCheckForUpdates,
+  onInstallUpdate,
   preferences,
   backgroundError,
   customBackgroundUrl,
@@ -243,6 +250,8 @@ export function Settings({
               />
             </Card.Content>
           </Card>
+
+          <UpdateSettings state={updateState} onCheck={onCheckForUpdates} onInstall={onInstallUpdate} />
 
           <footer className="flex flex-col items-start gap-4 px-1 py-3 sm:flex-row sm:items-center">
             <div>

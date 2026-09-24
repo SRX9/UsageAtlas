@@ -1091,8 +1091,8 @@
 }
 
 .atlas-progress-ring--sm .progress-circle__track {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2rem;
+  height: 2rem;
 }
 
 .atlas-progress-ring--sm .progress-circle__track-circle,
@@ -1126,33 +1126,120 @@
   letter-spacing: -0.01em;
 }
 
-.atlas-refresh-status {
-  position: sticky;
-  top: 0;
-  z-index: 4;
+.atlas-toolbar-activity {
   display: flex;
+  flex: 0 0 84px;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px clamp(8px, 1.2vw, 18px) 2px;
+  gap: 4px;
+  height: 40px;
+  -webkit-app-region: no-drag;
 }
 
-.atlas-refresh-status__label {
-  margin: 0;
-  min-width: 0;
-  max-width: 22rem;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.4;
-  text-overflow: ellipsis;
+.atlas-toolbar-activity__slot,
+.atlas-activity-indicator {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+}
+
+.atlas-activity-indicator {
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--foreground);
+  cursor: default;
+}
+
+.atlas-activity-indicator:focus-visible,
+.atlas-update-tag:focus-visible {
+  outline: 2px solid;
+  outline-offset: 2px;
+}
+
+.atlas-activity-indicator[data-error],
+.atlas-update-settings__status[data-error] {
+  color: var(--danger);
+}
+
+.atlas-progress-ring__icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.atlas-progress-ring__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.atlas-update-tag {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-inline-start: 6px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: var(--foreground);
+  box-shadow: var(--atlas-ring);
+  font-size: 0.6875rem;
+  font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .atlas-refresh-status {
-    animation: atlas-fade 200ms cubic-bezier(0.2, 0, 0, 1) both;
+.atlas-update-tag::before {
+  position: absolute;
+  inset: -6px 0;
+  content: "";
+}
+
+.atlas-update-tag:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 16%, transparent);
+}
+
+.atlas-update-tag:disabled { cursor: default; }
+.atlas-update-tag svg { width: 14px; height: 14px; }
+.atlas-update-tag__description { color: var(--muted); font-weight: 500; margin-inline-end: 4px; }
+
+.atlas-update-settings {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.atlas-update-settings__status {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.atlas-update-settings__status svg { flex-shrink: 0; }
+
+@media (max-width: 800px) {
+  .atlas-update-tag__description { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-progress-ring .progress-circle__track,
+  .atlas-progress-ring .progress-circle__fill-circle {
+    animation: none;
+    transition: none;
   }
 }
 
@@ -2846,7 +2933,6 @@
   .atlas-kicker,
   .atlas-hero-description,
   .atlas-startup__status,
-  .atlas-refresh-status__label,
   .atlas-progress-ring__total,
   .atlas-section-heading > p,
   .atlas-section-heading > div > p:not(.atlas-kicker) {

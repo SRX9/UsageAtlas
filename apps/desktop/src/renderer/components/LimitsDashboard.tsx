@@ -20,6 +20,7 @@ import { ProviderLogo } from "./ProviderLogo";
 const TODAY_PREVIEW_LIMITS = 4;
 
 interface LimitsDashboardProps {
+  backgroundActivity?: React.ReactNode;
   snapshot: DashboardSnapshot;
   limitOrder: string[];
   trayLimits: TrayLimitPreferences;
@@ -31,6 +32,7 @@ interface LimitsDashboardProps {
 }
 
 export function LimitsDashboard({
+  backgroundActivity,
   snapshot,
   limitOrder,
   trayLimits,
@@ -82,6 +84,7 @@ export function LimitsDashboard({
             <ChevronLeftIcon />
             <span>Today</span>
           </Button>
+          {backgroundActivity}
         </div>
         <div className="atlas-toolbar-actions">
           <Button isPending={refreshing} onPress={() => void onRefresh()} variant="secondary">

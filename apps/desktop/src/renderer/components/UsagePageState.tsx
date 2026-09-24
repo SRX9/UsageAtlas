@@ -1,8 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- Loading copy is shared by the startup screen and the in-dashboard refresh ring. */
 
-import { Button, ProgressCircle } from "@heroui/react";
+import { Button, ProgressCircle, Tooltip } from "@heroui/react";
 import type { EngineStatus, LocalImportProgress, RefreshProgress } from "../../shared/desktop-api";
-import { AlertIcon, ProvidersIcon } from "../icons";
+import { AlertIcon, HistoryIcon, ProvidersIcon, RefreshIcon } from "../icons";
 import { EmptyState } from "./UsagePrimitives";
 
 export function UsageLoading({
@@ -33,10 +33,12 @@ export function UsageRefreshStatus({
   const label = refreshStatusLabel(progress, engineStatus, "Updating usage");
 
   return (
-    <div className="atlas-refresh-status" role="status">
-      <UsageProgressRing label={label} progress={progress} size="sm" />
-      <p className="atlas-refresh-status__label">{label}</p>
-    </div>
+    <Tooltip delay={250}>
+      <Tooltip.Trigger aria-label={label} className="atlas-activity-indicator">
+        <UsageProgressRing icon={<RefreshIcon />} label={label} progress={progress} size="sm" />
+      </Tooltip.Trigger>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
   );
 }
 
@@ -44,20 +46,25 @@ export function UsageStorageStatus({ progress }: { progress: LocalImportProgress
   const label = progress.error ?? (progress.total > 0
     ? `Saving local history · ${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} records`
     : "Preparing local history");
-  return <div className="atlas-refresh-status" role="status">
-    {!progress.error && <UsageProgressRing label={label} size="sm" progress={{ ...progress,
-      providerID: null, providerName: null, status: "started" }} />}
-    <p className="atlas-refresh-status__label">{label}</p>
-  </div>;
+  return (
+    <Tooltip delay={250}>
+      <Tooltip.Trigger aria-label={label} className="atlas-activity-indicator" data-error={Boolean(progress.error) || undefined}>
+        {progress.error ? <AlertIcon /> : <UsageProgressRing icon={<HistoryIcon />} label={label} size="sm" progress={progress} />}
+      </Tooltip.Trigger>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
+  );
 }
 
 function UsageProgressRing({
+  icon,
   label,
   progress,
   size
 }: {
+  icon?: React.ReactNode;
   label: string;
-  progress: RefreshProgress | null;
+  progress: Pick<RefreshProgress, "completed" | "total"> | null;
   size: "sm" | "lg";
 }): React.JSX.Element {
   const total = progress?.total ?? 0;
@@ -79,6 +86,7 @@ function UsageProgressRing({
           <ProgressCircle.FillCircle />
         </ProgressCircle.Track>
       </ProgressCircle>
+      {icon ? <span aria-hidden="true" className="atlas-progress-ring__icon">{icon}</span> : null}
       {size === "lg" && determinate ? (
         <span aria-hidden="true" className="atlas-progress-ring__fraction">
           <span className="atlas-progress-ring__completed">{completed}</span>

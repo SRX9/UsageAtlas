@@ -1,7 +1,7 @@
-import { app, autoUpdater, net, Notification, shell } from "electron";
+import { app, autoUpdater, net } from "electron";
+import type { DesktopUpdateState } from "../shared/desktop-api";
 import {
   compareVersions,
-  DOWNLOAD_PAGE_URL,
   LATEST_RELEASE_URL,
   latestPublishedVersion,
   redactUpdateError,
@@ -13,93 +13,96 @@ const FIRST_CHECK_DELAY_MS = 10_000;
 
 export interface AutoUpdateHooks {
   capture?: (event: string) => void;
-  /**
-   * Called once a downloaded update only needs a restart. Squirrel.Mac never
-   * installs without `quitAndInstall`, so the app has to offer the restart.
-   */
+  onStateChange?: (state: DesktopUpdateState) => void;
   onUpdateReady?: (install: () => void) => void;
 }
 
-// Notifications are collected until dismissed so they are not garbage collected
-// while visible.
-const activeNotifications = new Set<Notification>();
-let announcedVersion: string | null = null;
+export interface DesktopUpdater {
+  getState(): DesktopUpdateState;
+  check(): Promise<DesktopUpdateState>;
+}
 
-export function configureAutoUpdates(hooks: AutoUpdateHooks = {}): void {
-  if (!app.isPackaged || process.env.USAGEATLAS_SMOKE_TEST === "1") return;
-  if (process.platform === "darwin" || process.platform === "win32") {
-    configureSquirrelUpdates(hooks);
-    return;
+export function configureAutoUpdates(hooks: AutoUpdateHooks = {}): DesktopUpdater {
+  const enabled = app.isPackaged && process.env.USAGEATLAS_SMOKE_TEST !== "1";
+  const currentVersion = app.getVersion();
+  const feedURL = squirrelFeedURL(process.platform, process.arch, currentVersion);
+  const firstRunUntil = process.argv.includes("--squirrel-firstrun") ? Date.now() + FIRST_CHECK_DELAY_MS : 0;
+  let state: DesktopUpdateState = {
+    status: enabled ? "idle" : "unavailable",
+    currentVersion,
+    availableVersion: null,
+    error: null
+  };
+  let initialTimer: NodeJS.Timeout | undefined;
+  let timer: NodeJS.Timeout | undefined;
+
+  function publish(patch: Partial<DesktopUpdateState>): void {
+    state = { ...state, error: null, ...patch };
+    hooks.onStateChange?.(state);
   }
-  configureReleaseNotices(hooks);
-}
 
-function configureSquirrelUpdates(hooks: AutoUpdateHooks): void {
-  const feedURL = squirrelFeedURL(process.platform, process.arch, app.getVersion());
-  if (!feedURL) return;
-  autoUpdater.setFeedURL({ url: feedURL });
+  function stopChecking(): void {
+    clearTimeout(initialTimer);
+    clearInterval(timer);
+  }
 
-  let timer: NodeJS.Timeout | null = null;
-  const stopChecking = (): void => {
-    if (timer) clearInterval(timer);
-    timer = null;
-  };
-
-  autoUpdater.on("checking-for-update", () => hooks.capture?.("desktop_update_checked"));
-  autoUpdater.on("update-available", () => hooks.capture?.("desktop_update_available"));
-  autoUpdater.on("update-downloaded", () => {
-    hooks.capture?.("desktop_update_downloaded");
-    // The staged build is downloaded once; further checks would re-download it
-    // until the user restarts.
-    stopChecking();
-    hooks.onUpdateReady?.(() => autoUpdater.quitAndInstall());
-  });
-  autoUpdater.on("error", (error) => {
-    console.error(`Update check failed: ${redactUpdateError(error.message)}`);
-  });
-
-  const check = (): void => {
-    if (!process.argv.includes("--squirrel-firstrun")) autoUpdater.checkForUpdates();
-  };
-  setTimeout(check, FIRST_CHECK_DELAY_MS).unref();
-  timer = setInterval(check, CHECK_INTERVAL_MS);
-  timer.unref();
-}
-
-/**
- * Linux ships a portable AppImage with no installer to hand a new build to, so
- * the app reports a newer release and links to the download page instead.
- */
-function configureReleaseNotices(hooks: AutoUpdateHooks): void {
-  const check = (): void => void checkPublishedRelease(hooks);
-  setTimeout(check, FIRST_CHECK_DELAY_MS).unref();
-  setInterval(check, CHECK_INTERVAL_MS).unref();
-}
-
-async function checkPublishedRelease(hooks: AutoUpdateHooks): Promise<void> {
-  hooks.capture?.("desktop_update_checked");
-  try {
-    const response = await net.fetch(LATEST_RELEASE_URL, { cache: "no-cache" });
-    if (!response.ok) return;
-    const version = latestPublishedVersion(await response.json());
-    if (!version || compareVersions(version, app.getVersion()) <= 0) return;
-    if (announcedVersion === version) return;
-    announcedVersion = version;
-    hooks.capture?.("desktop_update_available");
-    announceRelease(version);
-  } catch (error) {
+  function failed(error: unknown): void {
     console.error(`Update check failed: ${redactUpdateError(error instanceof Error ? error.message : "unknown")}`);
+    publish({ status: "error", error: "Unable to update. Check your connection and try again." });
   }
-}
 
-function announceRelease(version: string): void {
-  if (!Notification.isSupported()) return;
-  const notification = new Notification({
-    title: `UsageAtlas ${version} is available`,
-    body: "Open the download page to get the latest build."
-  });
-  notification.once("click", () => void shell.openExternal(DOWNLOAD_PAGE_URL));
-  notification.once("close", () => activeNotifications.delete(notification));
-  activeNotifications.add(notification);
-  notification.show();
+  async function check(): Promise<DesktopUpdateState> {
+    // A second Squirrel check would download the same update again.
+    if (!enabled || state.status === "checking" || state.status === "downloading" || state.status === "ready") return state;
+    if (Date.now() < firstRunUntil) {
+      publish({ status: "error", error: "Finishing installation. Try checking again in a few seconds." });
+      return state;
+    }
+    publish({ status: "checking", availableVersion: null });
+    hooks.capture?.("desktop_update_checked");
+    try {
+      if (feedURL) {
+        autoUpdater.setFeedURL({ url: feedURL });
+        autoUpdater.checkForUpdates();
+      } else {
+        // Linux releases are portable; the available state opens the download page.
+        const response = await net.fetch(LATEST_RELEASE_URL, {
+          cache: "no-cache",
+          signal: AbortSignal.timeout(30_000)
+        });
+        if (!response.ok) throw new Error(`Release check returned ${response.status}`);
+        const version = latestPublishedVersion(await response.json());
+        if (!version) throw new Error("The release feed did not contain a valid version");
+        const available = compareVersions(version, currentVersion) > 0;
+        publish({ status: available ? "available" : "current", availableVersion: available ? version : null });
+        if (available) hooks.capture?.("desktop_update_available");
+      }
+    } catch (error) {
+      failed(error);
+    }
+    return state;
+  }
+
+  if (enabled) {
+    if (feedURL) {
+      autoUpdater.on("update-available", () => {
+        hooks.capture?.("desktop_update_available");
+        publish({ status: "downloading" });
+      });
+      autoUpdater.on("update-not-available", () => publish({ status: "current", availableVersion: null }));
+      autoUpdater.on("update-downloaded", (_event, _notes, releaseName) => {
+        hooks.capture?.("desktop_update_downloaded");
+        stopChecking();
+        hooks.onUpdateReady?.(() => autoUpdater.quitAndInstall());
+        publish({ status: "ready", availableVersion: releaseName || null });
+      });
+      autoUpdater.on("error", failed);
+    }
+    initialTimer = setTimeout(() => void check(), FIRST_CHECK_DELAY_MS);
+    initialTimer.unref();
+    timer = setInterval(() => void check(), CHECK_INTERVAL_MS);
+    timer.unref();
+    app.once("before-quit", stopChecking);
+  }
+  return { getState: () => state, check };
 }

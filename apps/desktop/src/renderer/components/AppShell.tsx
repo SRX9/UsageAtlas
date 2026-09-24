@@ -8,6 +8,8 @@ interface AppShellProps {
   /** Open health notices — the rail dot is the only place they interrupt anything. */
   noticeCount: number;
   onNavigate(route: AppRoute): void;
+  activityControl?: React.ReactNode;
+  updateControl?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -32,7 +34,7 @@ const routeTitles: Record<AppRoute, string> = {
   settings: "Settings"
 };
 
-export function AppShell({ route, engineStatus, noticeCount, onNavigate, children }: AppShellProps): React.JSX.Element {
+export function AppShell({ route, engineStatus, noticeCount, onNavigate, activityControl, updateControl, children }: AppShellProps): React.JSX.Element {
   const workspaceRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -51,8 +53,10 @@ export function AppShell({ route, engineStatus, noticeCount, onNavigate, childre
             <img alt="" src="./usageatlas.png" />
           </span>
           <span className="atlas-app-shell__brand-name">UsageAtlas</span>
+          {updateControl}
           <span aria-hidden="true" className="atlas-app-shell__brand-divider" />
           <span className="atlas-app-shell__route-name">{routeTitles[route]}</span>
+          {activityControl}
         </div>
       </header>
 

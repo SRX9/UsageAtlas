@@ -16,6 +16,7 @@ import {
 import { ProviderLogo } from "./ProviderLogo";
 
 interface TimeNavigatorProps {
+  backgroundActivity?: React.ReactNode;
   label: string;
   mode: "day" | "range";
   selectedDay: string;
@@ -36,6 +37,7 @@ const ranges: Array<{ value: AnalyticsRange; label: string }> = [
 ];
 
 export function TimeNavigator({
+  backgroundActivity,
   label,
   mode,
   selectedDay,
@@ -138,6 +140,7 @@ export function TimeNavigator({
         </Button>
         <Tooltip.Content>{mode === "day" ? "Next day" : "Next period"}</Tooltip.Content>
       </Tooltip>
+      {backgroundActivity}
     </div>
   );
 }

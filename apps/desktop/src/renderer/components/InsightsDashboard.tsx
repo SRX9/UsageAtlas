@@ -17,6 +17,7 @@ import { type DitherColor, rgb, seedOfColor } from "./dither-kit/palette";
 import { ModelMixCard } from "./HeroMetrics";
 
 interface InsightsDashboardProps {
+  backgroundActivity?: React.ReactNode;
   snapshot: DashboardSnapshot;
   providerScope: ProviderScope;
   refreshing: boolean;
@@ -27,6 +28,7 @@ interface InsightsDashboardProps {
 const chartPalette: DitherColor[] = ["green", "blue", "purple", "orange", "pink", "red"];
 
 export function InsightsDashboard({
+  backgroundActivity,
   snapshot,
   providerScope,
   refreshing,
@@ -46,6 +48,7 @@ export function InsightsDashboard({
             <HistoryIcon aria-hidden="true" />
             All collected history
           </span>
+          {backgroundActivity}
         </div>
         <div className="atlas-toolbar-actions">
           <ProviderScopeSelect

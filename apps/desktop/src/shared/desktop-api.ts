@@ -3,6 +3,13 @@ import type { DashboardSnapshot } from "@usageatlas/contracts";
 export type AppRoute = "day" | "trends" | "insights" | "limits" | "alerts" | "settings" | "diagnostics";
 export type EngineStatus = "starting" | "ready" | "degraded" | "stopped";
 
+export interface DesktopUpdateState {
+  status: "idle" | "checking" | "current" | "downloading" | "ready" | "available" | "error" | "unavailable";
+  currentVersion: string;
+  availableVersion: string | null;
+  error: string | null;
+}
+
 export interface UsageAlertRule {
   enabled: boolean;
   thresholdPercent: number;
@@ -90,6 +97,10 @@ export interface DashboardState {
 }
 
 export interface UsageAtlasDesktopAPI {
+  getUpdateState(): Promise<DesktopUpdateState>;
+  checkForUpdates(): Promise<DesktopUpdateState>;
+  installUpdate(): Promise<void>;
+  onUpdateState(listener: (state: DesktopUpdateState) => void): () => void;
   getCloudStatus(): Promise<CloudStatus>;
   cloudAction(action: CloudAction, options?: CloudActionOptions): Promise<CloudStatus>;
   getCustomBackground(): Promise<string | null>;
@@ -107,6 +118,10 @@ export interface UsageAtlasDesktopAPI {
 }
 
 export const IPC = {
+  getUpdateState: "updates:get",
+  checkForUpdates: "updates:check",
+  installUpdate: "updates:install",
+  updateStateChanged: "updates:changed",
   cloudStatus: "cloud:status",
   cloudAction: "cloud:action",
   getCustomBackground: 'background:get-custom',

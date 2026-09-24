@@ -28,6 +28,7 @@ import {
 } from "./HeroMetrics";
 
 interface DayDashboardProps {
+  backgroundActivity?: React.ReactNode;
   snapshot: DashboardSnapshot;
   selectedDay: string;
   today: string;
@@ -42,6 +43,7 @@ interface DayDashboardProps {
 }
 
 export function DayDashboard({
+  backgroundActivity,
   snapshot,
   selectedDay,
   today,
@@ -72,6 +74,7 @@ export function DayDashboard({
     <div className="atlas-page">
       <div className="atlas-toolbar">
         <TimeNavigator
+          backgroundActivity={backgroundActivity}
           canMoveForward={selectedDay < today}
           label={dayNavigatorLabel(selectedDay, today)}
           mode="day"

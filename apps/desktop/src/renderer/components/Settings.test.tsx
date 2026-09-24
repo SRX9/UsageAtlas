@@ -55,6 +55,9 @@ describe("Settings appearance", () => {
 function render(providers: DashboardProvider[]): string {
   return renderToStaticMarkup(
     <Settings
+      updateState={null}
+      onCheckForUpdates={vi.fn()}
+      onInstallUpdate={vi.fn()}
       backgroundError={null}
       customBackgroundUrl={null}
       onChooseCustomBackground={vi.fn()}

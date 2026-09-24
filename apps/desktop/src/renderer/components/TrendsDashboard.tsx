@@ -22,6 +22,7 @@ import { ProviderScopeSelect, TimeNavigator } from "./AnalyzerControls";
 import { ModelMixCard, ProviderDonut, SeriesChart, StatTile, TokenMixChart } from "./HeroMetrics";
 
 interface TrendsDashboardProps {
+  backgroundActivity?: React.ReactNode;
   snapshot: DashboardSnapshot;
   range: AnalyticsRange;
   endDay: string;
@@ -36,6 +37,7 @@ interface TrendsDashboardProps {
 }
 
 export function TrendsDashboard({
+  backgroundActivity,
   snapshot,
   range,
   endDay,
@@ -70,6 +72,7 @@ export function TrendsDashboard({
     <div className="atlas-page">
       <div className="atlas-toolbar">
         <TimeNavigator
+          backgroundActivity={backgroundActivity}
           canMoveBack={canMove}
           canMoveForward={canMove && endDay < today}
           label={rangeLabel(range, endDay, today, bounds.startDay)}

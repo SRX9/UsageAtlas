@@ -106,6 +106,10 @@ export function RefreshIcon(props: IconProps): React.JSX.Element {
   );
 }
 
+export function DownloadIcon(props: IconProps): React.JSX.Element {
+  return <IconBase {...props}><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" /></IconBase>;
+}
+
 export function MoonIcon(props: IconProps): React.JSX.Element {
   return <IconBase {...props}><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" /></IconBase>;
 }

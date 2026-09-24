@@ -11,6 +11,8 @@ import type {
 import { applyWallpaper } from "./wallpapers";
 import { snapshotHasCachedUsage } from "../shared/cached-snapshot";
 import { dashboardFailure, dashboardIsLoading, initialDashboardState, latestDashboardState } from "./dashboard-state";
+import { useDesktopUpdates } from "./update-state";
+import { UpdateTag } from "./components/UpdateControls";
 import { AppShell } from "./components/AppShell";
 import { DayDashboard } from "./components/DayDashboard";
 import type { HealthNotice } from "./components/Diagnostics";
@@ -26,6 +28,7 @@ import { analyticsIssue, enabledProviders, todayDay } from "./personal-analytics
 import { providerConnection, reconnectSentence } from "./provider-connection";
 
 export function App(): React.JSX.Element {
+  const updates = useDesktopUpdates();
   const [route, setRoute] = useState<AppRoute>(() => routeFromHash(location.hash));
   const [dashboard, setDashboard] = useState(initialDashboardState);
   const { snapshot, refreshing, progress: refreshProgress } = dashboard;
@@ -197,6 +200,17 @@ export function App(): React.JSX.Element {
     navigate("trends");
   }
 
+  const activity = (
+    <div aria-label="Background activity" className="atlas-toolbar-activity" role="group">
+      <span className="atlas-toolbar-activity__slot">
+        {!usageLoading && refreshing && !usageError ? <UsageRefreshStatus engineStatus={engineStatus} progress={refreshProgress} /> : null}
+      </span>
+      <span className="atlas-toolbar-activity__slot">
+        {dashboard.localImport ? <UsageStorageStatus progress={dashboard.localImport} /> : null}
+      </span>
+    </div>
+  );
+
   function renderUsageRoute(): React.JSX.Element | null {
     if (!usageRoute) return null;
     if (usageLoading) return <UsageLoading engineStatus={engineStatus} progress={refreshProgress} />;
@@ -208,6 +222,7 @@ export function App(): React.JSX.Element {
     if (route === "day") {
       return (
         <DayDashboard
+          backgroundActivity={activity}
           limitOrder={preferences?.limitOrder ?? []}
           onOpenLimits={() => navigate("limits")}
           onProviderScopeChange={setProviderScope}
@@ -225,6 +240,7 @@ export function App(): React.JSX.Element {
     if (route === "trends") {
       return (
         <TrendsDashboard
+          backgroundActivity={activity}
           endDay={trendEndDay}
           onEndDayChange={setTrendEndDay}
           onOpenDay={selectDay}
@@ -242,6 +258,7 @@ export function App(): React.JSX.Element {
     if (route === "insights") {
       return (
         <InsightsDashboard
+          backgroundActivity={activity}
           onProviderScopeChange={setProviderScope}
           onRefresh={refreshAll}
           providerScope={providerScope}
@@ -253,6 +270,7 @@ export function App(): React.JSX.Element {
     if (route === "limits") {
       return (
         <LimitsDashboard
+          backgroundActivity={activity}
           limitOrder={preferences?.limitOrder ?? []}
           onBack={() => navigate("day")}
           onLimitOrderChange={(limitOrder) => updatePreferences({ limitOrder })}
@@ -268,11 +286,8 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <AppShell engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate} route={route}>
-      {!usageLoading && refreshing && !usageError ? (
-        <UsageRefreshStatus engineStatus={engineStatus} progress={refreshProgress} />
-      ) : null}
-      {dashboard.localImport && <UsageStorageStatus progress={dashboard.localImport} />}
+    <AppShell activityControl={!usageRoute ? activity : null} engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate} route={route}
+      updateControl={<UpdateTag state={updates.state} onCheck={updates.check} onInstall={updates.install} />}>
       {renderUsageRoute()}
       {route === "alerts" && (
         <UsageAlertsPage
@@ -284,6 +299,9 @@ export function App(): React.JSX.Element {
       )}
       {route === "settings" && (
         <Settings
+          updateState={updates.state}
+          onCheckForUpdates={updates.check}
+          onInstallUpdate={updates.install}
           backgroundError={backgroundError}
           customBackgroundUrl={customBackgroundUrl}
           onChooseCustomBackground={chooseCustomBackground}
