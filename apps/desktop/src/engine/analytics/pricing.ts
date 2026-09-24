@@ -166,6 +166,7 @@ function firstRate(
 function mergePricing(live: Pricing | null, bundled: Pricing | undefined): Pricing | undefined {
   if (!live) return bundled;
   return {
+    contextTiers: live.contextTiers ?? bundled?.contextTiers,
     input: live.input,
     output: live.output,
     cacheRead: live.cacheRead ?? bundled?.cacheRead,
@@ -181,6 +182,7 @@ function mergePricing(live: Pricing | null, bundled: Pricing | undefined): Prici
 function estimateCodex(input: TokenCostInput, pricing: Pricing | undefined): number | null {
   if (!pricing) return null;
   const rawInput = nonnegative(input.inputTokens);
+  pricing = pricingForContext(pricing, rawInput);
   const cached = Math.min(nonnegative(input.cachedInputTokens), rawInput);
   const remainingInput = rawInput - cached;
   const cacheCreation = Math.min(nonnegative(input.cacheCreationInputTokens), remainingInput);
@@ -207,6 +209,7 @@ function estimateClaude(input: TokenCostInput, pricing: Pricing): number {
   const cacheCreation1h = Math.min(nonnegative(input.cacheCreation1hInputTokens ?? 0), cacheCreation);
   const cacheCreation5m = cacheCreation - cacheCreation1h;
   const contextTokens = freshInput + cached + cacheCreation;
+  pricing = pricingForContext(pricing, contextTokens);
   const above = pricing.threshold !== undefined && contextTokens > pricing.threshold;
   const inputRate = above ? pricing.inputAboveThreshold ?? pricing.input : pricing.input;
   const outputRate = above ? pricing.outputAboveThreshold ?? pricing.output : pricing.output;
@@ -221,6 +224,17 @@ function estimateClaude(input: TokenCostInput, pricing: Pricing): number {
     + cacheCreation5m * cacheWrite5mRate
     + cacheCreation1h * inputRate * 2
     + nonnegative(input.outputTokens) * outputRate;
+}
+
+/** Context tiers apply to the whole request; choose the highest threshold crossed. */
+function pricingForContext(pricing: Pricing, contextTokens: number): Pricing {
+  if (!pricing.contextTiers?.length) return pricing;
+  const tier = pricing.contextTiers.reduce<(typeof pricing.contextTiers)[number] | undefined>(
+    (selected, candidate) => contextTokens > candidate.threshold && (!selected || candidate.threshold > selected.threshold)
+      ? candidate : selected, undefined);
+  return { ...pricing, threshold: undefined, input: tier?.input ?? pricing.input,
+    output: tier?.output ?? pricing.output, cacheRead: tier?.cacheRead ?? pricing.cacheRead,
+    cacheWrite: tier?.cacheWrite ?? pricing.cacheWrite };
 }
 
 function stripCodexIdentity(raw: string): string {
@@ -238,6 +252,11 @@ function stripClaudeIdentity(raw: string): string {
 
 function scalePricing(pricing: Pricing, multiplier: number): Pricing {
   return {
+    contextTiers: pricing.contextTiers?.map(tier => ({ threshold: tier.threshold,
+      input: tier.input === undefined ? undefined : tier.input * multiplier,
+      output: tier.output === undefined ? undefined : tier.output * multiplier,
+      cacheRead: tier.cacheRead === undefined ? undefined : tier.cacheRead * multiplier,
+      cacheWrite: tier.cacheWrite === undefined ? undefined : tier.cacheWrite * multiplier })),
     input: pricing.input * multiplier,
     output: pricing.output * multiplier,
     cacheRead: pricing.cacheRead === undefined ? undefined : pricing.cacheRead * multiplier,

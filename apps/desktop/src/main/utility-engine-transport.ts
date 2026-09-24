@@ -1,6 +1,6 @@
 import { utilityProcess, type UtilityProcess } from "electron";
 import type { EngineRequest } from "../engine/protocol";
-import { isEngineProgressMessage, isEngineReadyMessage, parseEngineResponse } from "../engine/protocol";
+import { isEngineImportMessage, isEngineProgressMessage, isEngineReadyMessage, parseEngineResponse } from "../engine/protocol";
 import type { EngineTransport, EngineTransportHandlers } from "./engine-transport";
 
 const STARTUP_TIMEOUT_MS = 10_000;
@@ -61,6 +61,10 @@ export class UtilityEngineTransport implements EngineTransport {
           return;
         }
         try {
+          if (isEngineImportMessage(message)) {
+            handlers.importProgress?.(message);
+            return;
+          }
           if (isEngineProgressMessage(message)) {
             handlers.progress?.(message);
             return;

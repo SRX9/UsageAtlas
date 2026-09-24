@@ -74,22 +74,36 @@ export interface RefreshProgress {
   status: "started" | "completed";
 }
 
+export interface LocalImportProgress {
+  completed: number;
+  total: number;
+  error: string | null;
+}
+
+export interface DashboardState {
+  localImport?: LocalImportProgress | null;
+  revision: number;
+  snapshot: DashboardSnapshot | null;
+  refreshing: boolean;
+  progress: RefreshProgress | null;
+  error: string | null;
+}
+
 export interface UsageAtlasDesktopAPI {
   getCloudStatus(): Promise<CloudStatus>;
   cloudAction(action: CloudAction, options?: CloudActionOptions): Promise<CloudStatus>;
   getCustomBackground(): Promise<string | null>;
   chooseCustomBackground(): Promise<BackgroundImageSelection | null>;
-  getSnapshot(): Promise<DashboardSnapshot>;
-  refreshAll(): Promise<DashboardSnapshot>;
-  setProviderEnabled(providerID: string, enabled: boolean): Promise<DashboardSnapshot>;
+  getSnapshot(): Promise<DashboardState>;
+  refreshAll(): Promise<DashboardState>;
+  setProviderEnabled(providerID: string, enabled: boolean): Promise<DashboardState>;
   getPreferences(): Promise<DesktopPreferences>;
   updatePreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>;
   getDiagnostics(): Promise<EngineDiagnostics>;
   openExternal(url: string): Promise<boolean>;
   onEngineStatus(listener: (status: EngineStatus) => void): () => void;
   onNavigate(listener: (route: AppRoute) => void): () => void;
-  onSnapshot(listener: (snapshot: DashboardSnapshot) => void): () => void;
-  onRefreshProgress(listener: (progress: RefreshProgress) => void): () => void;
+  onSnapshot(listener: (state: DashboardState) => void): () => void;
 }
 
 export const IPC = {
@@ -106,7 +120,6 @@ export const IPC = {
   engineStatus: "engine:status",
   navigate: "shell:navigate",
   snapshotUpdated: "dashboard:updated",
-  refreshProgress: "dashboard:refresh-progress",
   openExternal: "shell:open-external"
 } as const;
 

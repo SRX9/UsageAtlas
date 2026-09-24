@@ -61,6 +61,22 @@ function sync(local: UsageStore) {
 }
 
 describe("usage cloud storage", () => {
+  it("stops requesting more cloud pages when the account is disconnected", async () => {
+    const local = store();
+    const cloud = remoteCloud();
+    let finish!: (page: { records: CloudRecord[]; next: string | null }) => void;
+    const firstPage = new Promise<{ records: CloudRecord[]; next: string | null }>(resolve => { finish = resolve; });
+    const read = vi.spyOn(cloud, "read").mockImplementationOnce(() => firstPage);
+    const service = sync(local);
+    await service.configure("a", cloud);
+    const restoring = service.restore();
+    const disconnecting = service.configure("", null);
+    expect(local.owner).toBe("a");
+    finish({ records: [{ record: day(), revision: 1 }], next: day().recordId });
+    await Promise.all([restoring, disconnecting]);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(service.status()).toMatchObject({ accountId: null, busy: false, automatic: false, lastCompleted: null });
+  });
   it("restores over a corrupt payload and keeps damaged conflicts out of status", async () => {
     const local = store();
     local.selectAccount("a");
@@ -483,7 +499,7 @@ describe("usage cloud storage", () => {
     expect(() => validateUsageRecord({ ...day(), status: "no_data" })).toThrow();
     expect(() => validateUsageRecord({ ...day(), totals: { ...day().totals, totalTokens: 1 } })).toThrow();
     expect(() =>
-      validateUsageRecord({ ...day(), models: [{ modelKey: "private-model", totals: day().totals }] })
+      validateUsageRecord({ ...day(), models: [{ modelKey: "x".repeat(257), totals: day().totals }] })
     ).toThrow();
   });
 });

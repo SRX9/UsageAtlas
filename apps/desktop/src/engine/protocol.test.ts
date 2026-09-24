@@ -3,12 +3,22 @@ import {
   createEngineReadyMessage,
   EngineRequestError,
   isEngineProgressMessage,
+  isEngineImportMessage,
   isEngineReadyMessage,
   parseEngineRequest,
   parseEngineResponse
 } from "./protocol";
 
 describe("engine protocol", () => {
+  it("validates account-scoped import counts", () => {
+    const message = { type: "engine.import-progress", accountId: "a", progress: { completed: 250, total: 701, error: null } };
+    expect(isEngineImportMessage(message)).toBe(true);
+    expect(isEngineImportMessage({ ...message, progress: null })).toBe(true);
+    for (const completed of [-1, 702, 1.5, NaN, Infinity])
+      expect(isEngineImportMessage({ ...message, progress: { ...message.progress, completed } })).toBe(false);
+    expect(isEngineImportMessage({ ...message, accountId: null })).toBe(false);
+  });
+
   it("accepts allowlisted requests", () => {
     expect(parseEngineRequest({ id: "1", method: "snapshot.get", params: { force: true } }).method)
       .toBe("snapshot.get");

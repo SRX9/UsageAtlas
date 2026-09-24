@@ -122,25 +122,51 @@ describe("provider adapters", () => {
     expect(result.source).toBe("cursor_app");
     expect(result.accountKey).toBe("cursor-user");
     expect(result.analytics).toMatchObject({
-      status: "available",
+      status: "partial",
       source: "remote_usage",
-      recordsProcessed: 3,
+      recordsProcessed: 2,
       totals: {
         inputTokens: 300,
         cachedInputTokens: 70,
         cacheCreationInputTokens: 10,
         outputTokens: 130,
         totalTokens: 510,
-        requests: 3,
+        requests: 2,
         estimatedCostUSD: 0.06
       }
     });
     expect(result.analytics?.models.map((model) => model.id)).toEqual([
       "composer-2",
-      "claude-4.6-sonnet-medium-thinking",
-      "auto"
+      "claude-4.6-sonnet-medium-thinking"
     ]);
+    expect(result.analytics?.collection?.events).toHaveLength(3);
+    expect(result.analytics?.collection?.events.some(event => event.measurement === "unknown")).toBe(true);
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps successful Cursor limits when its history download times out", async () => {
+    const controller = new AbortController();
+    const request = vi.fn<typeof fetch>(async url => {
+      if (String(url).endsWith("usage-summary")) return Response.json(cursorFixture);
+      return new Promise<Response>((_resolve, reject) => {
+        controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
+      });
+    });
+    const adapter = createCursorAdapter({
+      fetch: request,
+      sqliteFactory: { open: () => ({
+        get: () => ({ value: cursorToken({ sub: "auth0|cursor-user", exp: 2_000_000_000 }) }),
+        all: () => [], close: () => {}
+      }) }
+    });
+    const pending = adapter.refresh(testContext(controller.signal));
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    controller.abort();
+    const result = await pending;
+    expect(result.windows).toEqual(parseCursorUsage(cursorFixture, now).windows);
+    expect(result.error).toBeNull();
+    expect(result.analytics).toMatchObject({ status: "unavailable", error: { code: "timeout", retryable: true } });
+    expect(result.analytics?.daily).toEqual([]);
   });
 
   it("keeps local analytics available when remote credentials are missing", async () => {

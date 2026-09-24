@@ -20,7 +20,8 @@ const engine = new EngineService(
   (progress) => {
     port.postMessage({ type: "engine.progress", ...progress });
   },
-  () => port.postMessage({ type: "engine.history-changed" })
+  () => port.postMessage({ type: "engine.history-changed" }),
+  (accountId, progress) => port.postMessage({ type: "engine.import-progress", accountId, progress })
 );
 let queue = Promise.resolve();
 

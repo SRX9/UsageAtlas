@@ -1,0 +1,522 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usageatlas:statistics:v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "providerId": {
+          "enum": [
+            "codex",
+            "claude",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "kind": {
+          "const": "usage_event"
+        },
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "modelKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reportedModel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "modelProvider": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sessionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projectId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serviceTier": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "granularity": {
+          "enum": [
+            "event",
+            "session"
+          ]
+        },
+        "measurement": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "totals": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "inputTokens",
+                "cachedInputTokens",
+                "cacheCreationInputTokens",
+                "outputTokens",
+                "totalTokens",
+                "requests",
+                "estimatedCostMicrosUSD",
+                "unpricedTokens"
+              ],
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cachedInputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cacheCreationInputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "totalTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "estimatedCostMicrosUSD": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unpricedTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rawTokens": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,63}$"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "reportedCostUSD": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estimatedCostUSD": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pricingVersion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parserVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "eventIdentity": {
+          "enum": [
+            "source",
+            "fingerprint"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "sourceId",
+        "providerId",
+        "observedAt",
+        "kind",
+        "eventId",
+        "occurredAt",
+        "timeZone",
+        "modelKey",
+        "reportedModel",
+        "modelProvider",
+        "sessionId",
+        "projectId",
+        "serviceTier",
+        "granularity",
+        "measurement",
+        "totals",
+        "rawTokens",
+        "reportedCostUSD",
+        "estimatedCostUSD",
+        "pricingVersion",
+        "parserVersion",
+        "eventIdentity"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "providerId": {
+          "enum": [
+            "codex",
+            "claude",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "kind": {
+          "const": "collection"
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "coverageStart": {
+          "type": "string",
+          "format": "date",
+          "maxLength": 10
+        },
+        "coverageEnd": {
+          "type": "string",
+          "format": "date",
+          "maxLength": 10
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "no_data",
+            "unavailable"
+          ]
+        },
+        "filesScanned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "recordsProcessed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parserVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pricingVersion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "sourceId",
+        "providerId",
+        "observedAt",
+        "kind",
+        "timeZone",
+        "coverageStart",
+        "coverageEnd",
+        "status",
+        "filesScanned",
+        "recordsProcessed",
+        "reasonCode",
+        "parserVersion",
+        "pricingVersion"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "providerId": {
+          "enum": [
+            "codex",
+            "claude",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "kind": {
+          "const": "capacity"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "windows": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "usedPercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "resetAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "maxLength": 40
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "usedPercent",
+              "resetAt"
+            ]
+          }
+        },
+        "credits": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "remaining": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "remaining",
+                "unit"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "sourceId",
+        "providerId",
+        "observedAt",
+        "kind",
+        "plan",
+        "windows",
+        "credits"
+      ]
+    }
+  ]
+}

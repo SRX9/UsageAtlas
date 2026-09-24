@@ -140,7 +140,7 @@ export class PreferenceStore {
 
   private applyLoginItemSetting(openAtLogin: boolean): void {
     // Development runs would register the bare Electron executable at login.
-    if (!app.isPackaged) return;
+    if (!app.isPackaged || process.env.USAGEATLAS_SMOKE_TEST === "1") return;
     if (process.platform === "win32") {
       const executableName = path.basename(process.execPath);
       const squirrelStub = path.resolve(path.dirname(process.execPath), "..", executableName);

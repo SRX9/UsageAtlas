@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -12,6 +13,7 @@ const MAXIMUM_BYTES = 8 * 1_024 * 1_024;
 let memory: { cachePath: string; fetchedAt: string; catalog: PricingCatalog } | null = null;
 
 export interface ModelRate {
+  contextTiers?: { threshold: number; input?: number; output?: number; cacheRead?: number; cacheWrite?: number }[];
   input: number;
   output: number;
   cacheRead?: number;
@@ -65,7 +67,10 @@ export function parseModelsDevCatalog(value: unknown, revision = "models-dev"): 
     }
     if (Object.keys(providerRates).length > 0) rates[providerID] = providerRates;
   }
-  return pricingCatalogFromRates(rates, revision);
+  const fingerprint = createHash("sha256").update(JSON.stringify(rates, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value)).digest("hex");
+  return pricingCatalogFromRates(rates, `models-dev:sha256:${fingerprint}`);
 }
 
 export function createPricingCatalogLoader(options: {
@@ -180,18 +185,25 @@ function parseModelRate(value: unknown): ModelRate | null {
 
 function parseLongContext(cost: Record<string, unknown>): Partial<ModelRate> {
   const tiers = Array.isArray(cost.tiers) ? cost.tiers : [];
+  const contextTiers: NonNullable<ModelRate["contextTiers"]> = [];
   for (const entry of tiers) {
     const tier = record(entry);
     const meta = record(tier?.tier);
     const size = typeof meta?.size === "number" ? meta.size : null;
     if (!tier || meta?.type !== "context" || size === null || !Number.isFinite(size) || size <= 0) continue;
-    return {
+    contextTiers.push({
       threshold: size,
-      inputAboveThreshold: perToken(tier.input) ?? undefined,
-      outputAboveThreshold: perToken(tier.output) ?? undefined,
-      cacheReadAboveThreshold: perToken(tier.cache_read) ?? undefined,
-      cacheWriteAboveThreshold: perToken(tier.cache_write) ?? undefined
-    };
+      input: perToken(tier.input) ?? undefined,
+      output: perToken(tier.output) ?? undefined,
+      cacheRead: perToken(tier.cache_read) ?? undefined,
+      cacheWrite: perToken(tier.cache_write) ?? undefined
+    });
+  }
+  if (contextTiers.length) {
+    contextTiers.sort((left, right) => left.threshold - right.threshold);
+    const first = contextTiers[0]!;
+    return { contextTiers, threshold: first.threshold, inputAboveThreshold: first.input,
+      outputAboveThreshold: first.output, cacheReadAboveThreshold: first.cacheRead, cacheWriteAboveThreshold: first.cacheWrite };
   }
   const over = record(cost.context_over_200k);
   if (!over) return {};

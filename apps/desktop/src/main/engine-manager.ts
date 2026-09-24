@@ -1,7 +1,7 @@
 import type { DashboardSnapshot, JsonValue } from "@usageatlas/contracts";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { EngineMethod, EngineProgressMessage, EngineResponse } from "../engine/protocol";
+import type { EngineImportMessage, EngineMethod, EngineProgressMessage, EngineResponse } from "../engine/protocol";
 import { redactDiagnostic } from "../engine/platform/redaction";
 import type { EngineDiagnostics, EngineStatus } from "../shared/desktop-api";
 import { validateDashboard } from "./dashboard-validation";
@@ -33,6 +33,11 @@ export class EngineManager {
   onProgress(listener: (progress: EngineProgressMessage) => void): () => void {
     this.events.on("progress", listener);
     return () => this.events.off("progress", listener);
+  }
+
+  onImportProgress(listener: (message: EngineImportMessage) => void): () => void {
+    this.events.on("import-progress", listener);
+    return () => this.events.off("import-progress", listener);
   }
 
   onHistoryChanged(listener: () => void): () => void {
@@ -139,6 +144,7 @@ export class EngineManager {
       message: (response) => this.acceptResponse(response),
       progress: (progress) => this.events.emit("progress", progress),
       historyChanged: () => this.events.emit("history-changed"),
+      importProgress: message => this.events.emit("import-progress", message),
       diagnostic: (message) => this.record(message),
       exit: (code) => this.handleExit(transport, code)
     }).then(() => {

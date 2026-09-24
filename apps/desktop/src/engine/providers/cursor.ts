@@ -9,6 +9,7 @@ import {
   type CursorUsageHistoryOptions
 } from "../analytics/cursor-usage";
 import { providerFailure } from "../analytics/provider-analytics";
+import { unavailableAnalytics } from "../analytics/local-usage";
 import { fetchProviderJson, type FetchImplementation } from "../platform/http";
 import {
   NodeReadonlySqliteFactory,
@@ -139,7 +140,11 @@ async function refreshCursor(
     timeZone: context.reportingTimeZoneForAccount?.(credential.userID),
     maxEvents: options.maxEvents,
     pageSize: options.pageSize
-  });
+  }).catch(error => unavailableAnalytics(context.now, historyDays, context.signal.aborted ? {
+    code: "timeout",
+    message: "Cursor usage history timed out. Refresh to try again.",
+    retryable: true
+  } : providerFailure(error, "Cursor usage history could not be refreshed."), "remote_usage"));
   try {
     const remote = await refreshCursorQuota(context, credential, headers, options.fetch);
     return { ...remote, analytics: await analyticsPromise, accountKey: credential.userID };

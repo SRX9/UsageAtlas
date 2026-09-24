@@ -1,3 +1,4 @@
+import { validateUsageFact, STATISTICS_BATCH_SIZE, type UsageFact } from "@usageatlas/contracts/statistics";
 import {
   USAGE_BATCH_SIZE,
   USAGE_MAX_BYTES,
@@ -11,6 +12,8 @@ import type { CloudProgress } from "../../shared/desktop-api";
 import { UsageStore } from "./usage-store";
 
 export interface UsageCloud {
+  readFacts?(after: string): Promise<{ facts: UsageFact[]; cursor: string; more: boolean }>;
+  saveFacts?(facts: UsageFact[]): Promise<string[]>;
   read(after: string | null): Promise<{ records: CloudRecord[]; next: string | null }>;
   save(records: PendingRecord[]): Promise<SaveResult[]>;
 }
@@ -24,10 +27,13 @@ export class UsageSync {
   private cloud: UsageCloud | null = null;
   private error: string | null = null;
   private closed = false;
+  private stopping = false;
+  private controller: AbortController | null = null;
   private preparedAccount: string | null = null;
   constructor(
     private readonly store: UsageStore,
-    private readonly changed: () => void = () => {}
+    private readonly changed: (reason: "account" | "history") => void = () => {},
+    private readonly beforeSave?: (signal: AbortSignal) => Promise<void>
   ) {
     store.onChange = () => this.schedule();
   }
@@ -68,17 +74,24 @@ export class UsageSync {
   }
   async configure(account: string, cloud: UsageCloud | null): Promise<void> {
     this.clearTimer();
-    // Finish the current operation under its original account before switching.
+    // Finish only the in-flight request under its original account. A large history
+    // must not keep uploading pages after sign-out or delay an account switch.
+    if (this.store.owner !== account) {
+      this.stopping = true;
+      this.controller?.abort();
+    }
     if (this.running) await this.running.catch(() => undefined);
+    this.stopping = false;
     // Completion can schedule a retry for the previous account.
     this.clearTimer();
+    const switched = this.store.owner !== account;
     this.preparedAccount = null;
     this.lastCompleted = null;
     this.store.selectAccount(account);
     this.cloud = cloud;
     this.error = null;
     this.schedule();
-    this.changed();
+    if (switched) this.changed("account");
   }
   setAutomatic(enabled: boolean): void {
     if (!this.cloud) throw new Error("Sign in before enabling automatic save.");
@@ -94,10 +107,11 @@ export class UsageSync {
   }
   resolve(id: string, choice: "local" | "cloud"): void {
     this.store.resolve(id, choice);
-    this.changed();
+    this.changed("history");
   }
   close(): void {
     this.closed = true;
+    this.controller?.abort();
     this.cloud = null;
     this.clearTimer();
     this.store.onChange = undefined;
@@ -107,16 +121,60 @@ export class UsageSync {
     if (!this.cloud || !this.store.owner) return Promise.reject(new Error("Sign in to your account first."));
     this.clearTimer();
     const cloud = this.cloud;
+    const controller = new AbortController();
+    this.controller = controller;
     this.progress = { operation: upload ? "save" : "restore", phase: "reading", completed: 0, total: null };
     this.lastCompleted = null;
     this.running = (async () => {
       this.error = null;
-      if (upload) this.store.claimLocal();
+      if (upload) {
+        if (this.beforeSave) await this.beforeSave(controller.signal);
+        if (this.closed || this.stopping) return;
+        const owner = this.store.owner;
+        while (this.store.statistics.hasLocal()) {
+          await this.store.statistics.claimLocalBatch(owner);
+          await new Promise<void>(resolve => setImmediate(resolve));
+          if (this.closed || this.stopping) return;
+        }
+        this.store.claimLocal();
+      }
+      if (cloud.readFacts) {
+        const key = `statistics-cursor:${this.store.owner}`;
+        let cursor = this.store.setting(key) ?? "0";
+        for (;;) {
+          const page = await cloud.readFacts(cursor);
+          if (this.closed || this.stopping) return;
+          if (!/^\d+$/.test(page.cursor) || BigInt(page.cursor) < BigInt(cursor)
+            || (page.more && (page.cursor === cursor || !page.facts.length))) throw new Error("Invalid statistics page.");
+          this.store.transaction(() => {
+            for (const fact of page.facts) this.store.statistics.put(fact, true);
+            this.store.setSetting(key, page.cursor);
+          });
+          cursor = page.cursor;
+          this.progress!.completed += page.facts.length;
+          if (!page.more) break;
+        }
+      }
+      if (upload) {
+        this.progress = { operation: "save", phase: "saving", completed: 0, total: this.store.statistics.pendingCount() };
+        for (;;) {
+          const facts = this.store.statistics.pending();
+          if (!facts.length) break;
+          if (!cloud.saveFacts) throw new Error("This server does not support saving usage observations. Update before saving.");
+          const saved = await cloud.saveFacts(facts);
+          if (this.closed || this.stopping) return;
+          if (saved.length !== facts.length || new Set(saved).size !== facts.length
+            || saved.some(id => !facts.some(fact => fact.id === id))) throw new Error("Incomplete statistics acknowledgement.");
+          this.store.transaction(() => this.store.statistics.acknowledge(saved));
+          this.progress!.completed += saved.length;
+        }
+      }
       if (!upload || this.preparedAccount !== this.store.owner) {
+        this.progress = { operation: upload ? "save" : "restore", phase: "reading", completed: 0, total: null };
         let after: string | null = null;
         do {
           const page = await cloud.read(after);
-          if (this.closed) return;
+          if (this.closed || this.stopping) return;
           for (const record of page.records) this.store.merge(record);
           if (page.next !== null && ((after !== null && page.next <= after) || page.records.length === 0)) {
             throw new Error("Invalid cloud page.");
@@ -132,7 +190,7 @@ export class UsageSync {
         this.progress = { operation: "save", phase: "saving", completed: 0, total: counts.pending - counts.conflicts - counts.invalid };
         while (pending.length) {
           const results = await cloud.save(pending);
-          if (this.closed) return;
+          if (this.closed || this.stopping) return;
           if (
             results.length !== pending.length ||
             new Set(results.map((row) => row.record.recordId)).size !== pending.length
@@ -160,20 +218,22 @@ export class UsageSync {
       this.lastCompleted = upload ? "save" : "restore";
     })()
       .catch((error: unknown) => {
+        if (this.closed || this.stopping) return;
         this.error = error instanceof Error ? error.message : "Cloud save failed. Your local usage is safe.";
         throw error;
       })
       .finally(() => {
         this.running = null;
+        this.controller = null;
         this.progress = null;
-        if (this.closed) return;
-        this.changed();
+        if (this.closed || this.stopping) return;
+        this.changed("history");
         this.schedule();
       });
     return this.running;
   }
   private schedule(): void {
-    if (!this.automatic || !this.cloud || this.closed || this.timer || this.running) return;
+    if (!this.automatic || !this.cloud || this.closed || this.stopping || this.timer || this.running) return;
     const counts = this.store.counts();
     if (counts.pending <= counts.conflicts + counts.invalid) return;
     this.timer = setTimeout(() => {
@@ -228,6 +288,17 @@ export function httpUsageCloud(baseURL: string, token: string): UsageCloud {
     });
   };
   return {
+    async readFacts(after) {
+      const result = await request(`/api/usage/statistics?after=${encodeURIComponent(after)}`) as { facts: unknown; cursor: unknown; more: unknown };
+      if (!Array.isArray(result.facts) || result.facts.length > STATISTICS_BATCH_SIZE
+        || typeof result.cursor !== "string" || !/^\d{1,19}$/.test(result.cursor) || typeof result.more !== "boolean") throw new Error("Invalid statistics response.");
+      return { facts: result.facts.map(validateUsageFact), cursor: result.cursor, more: result.more };
+    },
+    async saveFacts(facts) {
+      const result = await request("/api/usage/statistics", { facts }) as { saved: unknown };
+      if (!Array.isArray(result.saved) || result.saved.some(id => typeof id !== "string")) throw new Error("Invalid statistics acknowledgement.");
+      return result.saved as string[];
+    },
     async read(after) {
       const value = (await request(`/api/usage${after ? `?after=${encodeURIComponent(after)}` : ""}`)) as {
         records: unknown;

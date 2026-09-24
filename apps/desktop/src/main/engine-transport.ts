@@ -1,9 +1,10 @@
-import type { EngineProgressMessage, EngineRequest, EngineResponse } from "../engine/protocol";
+import type { EngineImportMessage, EngineProgressMessage, EngineRequest, EngineResponse } from "../engine/protocol";
 
 export interface EngineTransportHandlers {
   message(response: EngineResponse): void;
   progress?(progress: EngineProgressMessage): void;
   historyChanged?(): void;
+  importProgress?(message: EngineImportMessage): void;
   diagnostic(message: string): void;
   exit(code: number): void;
 }

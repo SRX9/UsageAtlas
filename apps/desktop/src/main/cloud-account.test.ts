@@ -5,6 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineManager } from "./engine-manager";
 import { CloudAccount } from "./cloud-account";
 
+const files = vi.hoisted(() => ({ failRemove: false }));
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return { ...fs, unlinkSync: (filename: string) => {
+    if (files.failRemove) throw new Error("EPERM: file is locked");
+    fs.unlinkSync(filename);
+  } };
+});
+
 const electron = vi.hoisted(() => ({
   directory: "",
   openExternal: vi.fn(),
@@ -24,6 +33,7 @@ vi.mock("electron", () => ({
 let account: CloudAccount;
 let cloud: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
+let engineAccountId: string | null;
 const code = {
   device_code: "private-code",
   user_code: "ABCD-EFGH",
@@ -35,15 +45,20 @@ const response = (value: unknown, status = 200) =>
 
 beforeEach(() => {
   vi.useFakeTimers();
+  files.failRemove = false;
   electron.encryptString.mockClear();
   electron.directory = mkdtempSync(
     path.join(tmpdir(), "usageatlas-auth-test-"),
   );
   electron.openExternal.mockReset().mockResolvedValue(undefined);
-  cloud = vi.fn().mockResolvedValue({ pending: 0, conflicts: [], busy: false });
+  engineAccountId = null;
+  cloud = vi.fn(async (params: { operation: string; accountId?: string }) => {
+    if (params.operation === "configure") engineAccountId = params.accountId || null;
+    return { accountId: engineAccountId, automatic: false, pending: 0, conflicts: [], busy: false, progress: null, lastCompleted: null, error: null };
+  });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  account = new CloudAccount({ cloud } as unknown as EngineManager, vi.fn());
+  account = new CloudAccount({ cloud } as unknown as EngineManager);
 });
 afterEach(() => {
   account.close();
@@ -108,6 +123,47 @@ describe("desktop cloud sign-in", () => {
     expect((await account.status()).loginCode).toBeNull();
   });
 
+  it("configures the dashboard only for verified sign-in, sign-out, and reconnection", async () => {
+    const configure = vi.fn(async (_accountId: string, operation: () => Promise<unknown>) => operation());
+    account = new CloudAccount({ cloud } as unknown as EngineManager, configure);
+    fetchMock
+      .mockResolvedValueOnce(response(code))
+      .mockResolvedValueOnce(response({ access_token: "session-token" }))
+      .mockResolvedValueOnce(response({ user: { id: "user-a", email: "a@example.com" } }));
+    await account.signIn();
+    expect(configure).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(configure).toHaveBeenCalledExactlyOnceWith("user-a", expect.any(Function), false);
+    await account.status();
+    await account.operation("automatic", { enabled: false });
+    expect(configure).toHaveBeenCalledOnce();
+    await account.reconnect();
+    expect(configure).toHaveBeenLastCalledWith("user-a", expect.any(Function), true);
+    fetchMock.mockResolvedValueOnce(response({ success: true }));
+    await account.signOut();
+    expect(configure).toHaveBeenLastCalledWith("", expect.any(Function), false);
+  });
+
+  it("hides the previous account's sync status until the verified account is configured", async () => {
+    engineAccountId = "previous-account";
+    let finish!: () => void;
+    const waiting = new Promise<void>(resolve => { finish = resolve; });
+    account = new CloudAccount({ cloud } as unknown as EngineManager, async (_accountId, operation) => {
+      await waiting;
+      return operation();
+    });
+    fetchMock
+      .mockResolvedValueOnce(response(code))
+      .mockResolvedValueOnce(response({ access_token: "session-token" }))
+      .mockResolvedValueOnce(response({ user: { id: "new-account", email: "a@example.com" } }));
+    await account.signIn();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await account.status()).toMatchObject({ account: null, accountId: null, busy: true, pending: 0, conflicts: [], loginCode: code.user_code });
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await account.status()).toMatchObject({ account: { id: "new-account" }, accountId: "new-account", loginCode: null });
+  });
+
   it("forwards cloud controls and disconnects the account on sign-out", async () => {
     await expect(account.operation("save")).rejects.toThrow("Sign in first");
     fetchMock
@@ -133,6 +189,21 @@ describe("desktop cloud sign-in", () => {
     expect(cloud).toHaveBeenLastCalledWith(expect.objectContaining({ operation: "configure", accountId: "", token: "" }));
     expect((await account.status()).account).toBeNull();
     await expect(account.operation("restore")).rejects.toThrow("Sign in first");
+  });
+
+  it("disconnects and revokes the session even when its saved file cannot be removed", async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(code))
+      .mockResolvedValueOnce(response({ access_token: "session-token" }))
+      .mockResolvedValueOnce(response({ user: { id: "user-a", email: "a@example.com" } }));
+    await account.signIn();
+    await vi.advanceTimersByTimeAsync(5000);
+    files.failRemove = true;
+    fetchMock.mockResolvedValueOnce(response({ success: true }));
+    await expect(account.signOut()).rejects.toThrow("saved sign-in");
+    expect(cloud).toHaveBeenLastCalledWith(expect.objectContaining({ operation: "configure", accountId: "", token: "" }));
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("/api/auth/sign-out"), expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer session-token" }) }));
+    expect(await account.status()).toMatchObject({ account: null, automatic: false, busy: false, error: expect.stringContaining("saved sign-in") });
   });
 
   it.each([

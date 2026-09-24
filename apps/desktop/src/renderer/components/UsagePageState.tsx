@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- Loading copy is shared by the startup screen and the in-dashboard refresh ring. */
 
 import { Button, ProgressCircle } from "@heroui/react";
-import type { EngineStatus, RefreshProgress } from "../../shared/desktop-api";
+import type { EngineStatus, LocalImportProgress, RefreshProgress } from "../../shared/desktop-api";
 import { AlertIcon, ProvidersIcon } from "../icons";
 import { EmptyState } from "./UsagePrimitives";
 
@@ -30,7 +30,7 @@ export function UsageRefreshStatus({
   engineStatus: EngineStatus;
   progress: RefreshProgress | null;
 }): React.JSX.Element {
-  const label = refreshStatusLabel(progress, engineStatus, "Updating today’s usage");
+  const label = refreshStatusLabel(progress, engineStatus, "Updating usage");
 
   return (
     <div className="atlas-refresh-status" role="status">
@@ -38,6 +38,17 @@ export function UsageRefreshStatus({
       <p className="atlas-refresh-status__label">{label}</p>
     </div>
   );
+}
+
+export function UsageStorageStatus({ progress }: { progress: LocalImportProgress }): React.JSX.Element {
+  const label = progress.error ?? (progress.total > 0
+    ? `Saving local history · ${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} records`
+    : "Preparing local history");
+  return <div className="atlas-refresh-status" role="status">
+    {!progress.error && <UsageProgressRing label={label} size="sm" progress={{ ...progress,
+      providerID: null, providerName: null, status: "started" }} />}
+    <p className="atlas-refresh-status__label">{label}</p>
+  </div>;
 }
 
 function UsageProgressRing({
@@ -87,8 +98,8 @@ export function refreshStatusLabel(
     if (progress.status === "started" && progress.providerName) {
       return `Updating ${progress.providerName}`;
     }
-    if (progress.completed >= progress.total) return "Finishing today’s numbers";
-    return "Updating today’s usage";
+    if (progress.completed >= progress.total) return "Finishing the usage update";
+    return "Updating usage";
   }
   if (engineStatus === "starting") return "Starting the local engine";
   return fallback;

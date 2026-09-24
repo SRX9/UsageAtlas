@@ -192,7 +192,7 @@ export function Settings({
                       onSetProviderEnabled(provider.id, enabled)
                     }
                     status={
-                      connection.needsAttention ? (
+                      connection.needsAttention || connection.state === "checking" ? (
                         <span
                           className="atlas-source-pill"
                           data-connection={connection.state}
@@ -204,8 +204,8 @@ export function Settings({
                   />
                 ))
               ) : (
-                <p className="px-3 py-5 text-sm text-muted">
-                  No supported sources were detected yet.
+                <p className="px-3 py-5 text-sm text-muted" role="status">
+                  {refreshing ? "Checking your connected sources…" : "No supported sources were detected yet."}
                 </p>
               )}
               {needsReconnect ? (

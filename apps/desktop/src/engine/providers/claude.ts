@@ -8,6 +8,7 @@ import { credentialLocations } from "../platform/credentials";
 import { fetchProviderJson, type FetchImplementation } from "../platform/http";
 import { readCredentialJson } from "../platform/json-file";
 import {
+  invalidResponse,
   object,
   optionalNumber,
   optionalObject,
@@ -80,7 +81,8 @@ async function refreshClaude(
   const analyticsPromise = scanProviderAnalytics(analyticsScanner, "claude", {
     signal: context.signal,
     now: context.now,
-    historyDays
+    historyDays,
+    timeZone: context.reportingTimeZoneForAccount?.("local")
   });
   try {
     const remote = await refreshClaudeQuota(context, options);
@@ -139,10 +141,12 @@ async function claudeCredential(
 function claudeWindow(value: unknown, kind: string, label: string) {
   const candidate = optionalObject(value, "Claude");
   if (!candidate) return null;
+  const used = optionalNumber(candidate.utilization);
+  if (used === null || used < 0) throw invalidResponse("Claude");
   return usageWindow(
     kind,
     label,
-    optionalNumber(candidate.utilization) ?? 0,
+    used,
     parseDate(candidate.resets_at)
   );
 }

@@ -19,12 +19,15 @@ export function persistProviderHistory(options: {
   now: Date;
   live: Omit<DashboardProvider, "id" | "name" | "enabled">;
 }): LocalUsageAnalytics | null {
+  if (options.live.analytics) options.store.saveCollection?.(options.providerId, options.accountKey, options.live.analytics);
   options.store.saveCapacity?.(options.providerId, options.accountKey, options.live);
   const timeZone = options.timeZone ?? options.store.reportingTimeZone?.(options.providerId, options.accountKey);
   const today = localCalendarDay(options.now, timeZone);
-  options.store.sealDraftsBefore(options.providerId, today);
 
   const analytics = options.live.analytics;
+  // Failed or incomplete scans must leave old drafts eligible for backfill.
+  if (analytics?.status === "available" || analytics?.status === "no_data")
+    options.store.sealDraftsBefore(options.providerId, today);
   const canPersistAnalytics = analytics !== null
     && (analytics.status === "available" || analytics.status === "partial" || analytics.status === "no_data");
   const previousToday = options.store.get(options.providerId, options.accountKey, today);
@@ -118,7 +121,7 @@ export function historyDaysForAccount(
 ): number {
   const today = localCalendarDay(now, store.reportingTimeZone?.(providerId, accountKey));
   const startDay = shiftLocalDay(today, -(HISTORY_BACKFILL_DAYS - 1));
-  if (store.needsTimezoneRefresh?.(providerId, accountKey)) return HISTORY_BACKFILL_DAYS;
+  if (store.needsCollectionRefresh?.(providerId, accountKey) || store.needsTimezoneRefresh?.(providerId, accountKey)) return HISTORY_BACKFILL_DAYS;
   const sealed = store.getRange(providerId, startDay, shiftLocalDay(today, -1))
     .filter((row) => row.accountKey === accountKey && row.sealed && hasUsageTotals(row.payload));
   if (sealed.length === 0) return HISTORY_BACKFILL_DAYS;

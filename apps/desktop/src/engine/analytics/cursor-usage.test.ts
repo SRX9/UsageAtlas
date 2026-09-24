@@ -4,6 +4,15 @@ import { fetchCursorUsageHistory } from "./cursor-usage";
 const now = new Date("2026-08-09T12:00:00.000Z");
 
 describe("Cursor usage history", () => {
+  it("retains a reported counter when another required counter is missing", async () => {
+    const row = { ...event(now.toISOString(), "future", 1, 1), tokenUsage: { inputTokens: 123 } };
+    const a = await fetchCursorUsageHistory({ now, signal: new AbortController().signal }, {}, {
+      fetch: async () => Response.json({ totalUsageEventsCount: 1, usageEventsDisplay: [row] })
+    });
+    expect(a.status).toBe("partial");
+    expect(a.collection?.events[0]).toMatchObject({ measurement: "unknown", rawTokens: { input: 123, output: null, cacheRead: null } });
+    expect(a.totals.requests).toBe(0);
+  });
   it("removes only proven adjacent page overlap before publishing totals", async () => {
     const first = event("2026-08-09T09:00:00.000Z", "model-a", 1, 10);
     const boundary = event("2026-08-09T10:00:00.000Z", "model-b", 2, 20);

@@ -71,10 +71,12 @@ Provider data is read from local files and provider APIs. Completed-day usage an
 snapshots are stored in a local history database in the app data directory. Without signing in to
 UsageAtlas, your usage history stays on your computer.
 
-If you choose a free account, cloud saves store usage totals, estimated costs, hourly activity, public model
-breakdowns, and limits and plan information under that account. Project and session names, file paths, prompts,
-responses, raw logs, and coding-tool credentials are not included. Cloud saves contain usage summaries,
-so restoring them does not restore every local project or session detail.
+If you choose a free account, cloud saves store usage totals, estimated costs, hourly activity, model
+breakdowns, and limits and plan information under that account. They also retain per-request timestamps,
+model identifiers (including private model names), numeric token and cost measurements, collection metadata,
+and opaque project and session identifiers. Project and session names, file paths, prompts, responses,
+raw transcript logs, and coding-tool credentials are not included. Restoring cloud history does not restore
+local project paths or session names.
 
 The optional anonymous install count is separate from cloud save. It never includes usage figures or your
 account name or email, and you can switch it off in Settings. Diagnostics are redacted before they are shown or copied.

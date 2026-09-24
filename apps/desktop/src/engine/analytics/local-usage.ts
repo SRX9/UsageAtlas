@@ -1,3 +1,4 @@
+import { USAGE_PARSER_VERSION, type CollectedUsageEvent } from "@usageatlas/contracts/statistics";
 import { localCalendarDay } from "../history/days";
 import type {
   LocalUsageAnalytics,
@@ -14,7 +15,7 @@ import { createReadStream } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline";
+import { visit } from "jsonc-parser";
 import { emptyPricingCatalog, type PricingCatalog } from "./models-dev";
 import {
   estimateClaudeCost,
@@ -29,6 +30,7 @@ export interface AnalyticsScanContext {
   signal: AbortSignal;
   now: Date;
   historyDays?: number;
+  timeZone?: string;
 }
 
 export interface AnalyticsScanner {
@@ -44,26 +46,12 @@ export interface LocalUsageScannerOptions {
   pricingCatalogLoader?: (context: AnalyticsScanContext) => Promise<PricingCatalog>;
 }
 
-export interface UsageRecord {
-  timestamp: string;
-  day: string;
-  model: string;
-  sessionID: string;
-  projectPath: string | null;
-  projectLabel: string;
-  serviceTier: string;
-  inputTokens: number;
-  cachedInputTokens: number;
-  cacheCreationInputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  estimatedCostUSD: number | null;
-  eventKey: string;
-}
+export type UsageRecord = CollectedUsageEvent;
 
 interface ParsedFile {
   records: UsageRecord[];
   skippedLines: number;
+  oversizedLines: number;
 }
 
 interface FileCacheEntry extends ParsedFile {
@@ -83,6 +71,7 @@ interface ScanGaps {
   unreadableFiles: number;
   truncated: boolean;
   skippedLines: number;
+  oversizedLines: number;
 }
 
 interface MutableTotals {
@@ -118,7 +107,7 @@ const DEFAULT_MAX_FILES = 5_000;
 const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const MAX_PROJECTS = 200;
 const MAX_SESSIONS = 250;
-/** Model × day rows, trimmed smallest-first so the busiest models keep every day. */
+/** Model Ã— day rows, trimmed smallest-first so the busiest models keep every day. */
 const MAX_DAILY_MODELS = 5_000;
 const SKIPPED_DIRECTORIES = new Set([".git", ".build", "build", "DerivedData", "node_modules", "outputs", "target"]);
 
@@ -193,7 +182,8 @@ export class LocalUsageScanner implements AnalyticsScanner {
       unreadableDirectories: discovery.errors,
       unreadableFiles,
       truncated: discovery.truncated,
-      skippedLines
+      skippedLines,
+      oversizedLines: parsed.reduce((total, entry) => total + (entry?.oversizedLines ?? 0), 0)
     };
     const gapMessage = scanGapMessage(gaps, this.maxFiles);
     return buildAnalytics(
@@ -203,7 +193,9 @@ export class LocalUsageScanner implements AnalyticsScanner {
       discovery.files.length,
       gapMessage !== null,
       "local_sessions",
-      gapMessage ?? undefined
+      gapMessage ?? undefined,
+      undefined,
+      context.timeZone
     );
   }
 
@@ -244,6 +236,9 @@ function scanGapMessage(gaps: ScanGaps, maxFiles: number): string | null {
   }
   if (gaps.skippedLines > 0) {
     reasons.push(`${countLabel(gaps.skippedLines, "log entry", "log entries")} could not be parsed`);
+  }
+  if (gaps.oversizedLines > 0) {
+    reasons.push(`${countLabel(gaps.oversizedLines, "usage or session metadata entry", "usage or session metadata entries")} exceeded the scan size limit`);
   }
   if (reasons.length === 0) return null;
   return `${capitalize(joinReasons(reasons))}. Totals and cost estimates include the entries that could be read.`;
@@ -331,10 +326,7 @@ async function discoverJsonlFiles(roots: string[], maxFiles: number, signal: Abo
 
   async function walk(directory: string): Promise<void> {
     signal.throwIfAborted();
-    if (files.length >= maxFiles) {
-      truncated = true;
-      return;
-    }
+    if (truncated) return;
     let handle;
     try {
       handle = await opendir(directory);
@@ -345,22 +337,24 @@ async function discoverJsonlFiles(roots: string[], maxFiles: number, signal: Abo
     try {
       for await (const entry of handle) {
         signal.throwIfAborted();
-        if (files.length >= maxFiles) {
-          truncated = true;
-          break;
-        }
+        if (truncated) break;
         const candidate = path.join(directory, entry.name);
         if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) {
           if (!SKIPPED_DIRECTORIES.has(entry.name)) await walk(candidate);
         } else if (entry.isFile() && path.extname(entry.name).toLowerCase() === ".jsonl") {
+          if (files.length === maxFiles) {
+            truncated = true;
+            break;
+          }
           files.push(candidate);
         }
       }
     } catch (error) {
+      signal.throwIfAborted();
       if (!isMissing(error)) errors += 1;
     } finally {
-      await handle.close().catch(() => undefined);
+      try { await handle.close(); } catch { /* Async iteration already closes the directory. */ }
     }
   }
 
@@ -376,15 +370,17 @@ async function parseCodexFile(
   catalog: PricingCatalog
 ): Promise<ParsedFile> {
   let currentModel = "unknown";
+  let reportedModel = "unknown";
   let currentTier = "standard";
   let currentTurnID: string | null = null;
   let sessionID = path.basename(file, path.extname(file));
   let projectPath: string | null = null;
   let previousTotal: TokenTriple | null = null;
+  const seenTotals = new Set<string>();
   let skippedLines = 0;
   const records: UsageRecord[] = [];
 
-  await scanLines(file, signal, maxLineBytes, (line, final) => {
+  const oversizedLines = await scanLines(file, signal, maxLineBytes, "codex", (line, final) => {
     if (
       !line.includes("session_meta")
       && !line.includes("turn_context")
@@ -394,7 +390,7 @@ async function parseCodexFile(
     const root = parseObject(line);
     if (!root) {
       // The active session file can end mid-entry while the tool is still writing it.
-      if (!final) skippedLines += 1;
+      if ((!final || /\}\s*$/u.test(line)) && couldContainUsage("codex", line)) skippedLines += 1;
       return;
     }
     const type = stringValue(root.type);
@@ -408,16 +404,17 @@ async function parseCodexFile(
       const state = objectValue(payload?.state) ?? payload;
       const personality = objectValue(state?.personality);
       const model = firstString(state?.model, personality?.model, payload?.model);
-      if (model !== null) currentModel = normalizeCodexModel(model);
+      if (model !== null) { currentModel = normalizeCodexModel(model); reportedModel = model; }
       currentTier = normalizeServiceTier(firstString(state?.service_tier, payload?.service_tier)) ?? currentTier;
       return;
     }
     if (type === "turn_context") {
+      currentTurnID = firstString(payload?.turn_id, payload?.turnId) ?? currentTurnID;
       const info = objectValue(payload?.info);
       const model = firstString(payload?.model, payload?.model_name, info?.model, info?.model_name);
-      if (model !== null) currentModel = normalizeCodexModel(model);
+      if (model !== null) { currentModel = normalizeCodexModel(model); reportedModel = model; }
       currentTier = normalizeServiceTier(firstString(payload?.service_tier, payload?.serviceTier, info?.service_tier))
-        ?? currentTier;
+        ?? (payload?.service_tier === null || payload?.serviceTier === null || info?.service_tier === null ? "standard" : currentTier);
       return;
     }
     if (type !== "event_msg" || !payload) return;
@@ -425,7 +422,7 @@ async function parseCodexFile(
     if (payloadType === "thread_settings_applied") {
       const settings = objectValue(payload.thread_settings);
       const model = firstString(settings?.model);
-      if (model !== null) currentModel = normalizeCodexModel(model);
+      if (model !== null) { currentModel = normalizeCodexModel(model); reportedModel = model; }
       currentTier = normalizeServiceTier(firstString(settings?.service_tier)) ?? currentTier;
       return;
     }
@@ -436,14 +433,28 @@ async function parseCodexFile(
     if (payloadType !== "token_count") return;
     const info = objectValue(payload.info);
     if (!info) return;
-    const last = tokenTriple(objectValue(info.last_token_usage));
-    const total = tokenTriple(objectValue(info.total_token_usage));
+    const lastValue = objectValue(info.last_token_usage), totalValue = objectValue(info.total_token_usage);
+    const last = tokenTriple(lastValue);
+    const total = tokenTriple(totalValue);
+    if ((info.last_token_usage != null && !last) || (info.total_token_usage != null && !total)) {
+      skippedLines += 1;
+      return;
+    }
+    const timestamp = dateString(root.timestamp);
+    if (!timestamp) { if (last || total) skippedLines += 1; return; }
+    const totalKey = total ? JSON.stringify(total) : null;
+    if (totalKey && seenTotals.has(totalKey)) return;
+    if (total && previousTotal && total.input <= previousTotal.input && total.output <= previousTotal.output
+      && !equalTriple(total, previousTotal)) {
+      // A fresh counter equal to the last request establishes a reset. Other regressions are stale snapshots.
+      if (last && equalTriple(total, last)) { previousTotal = null; seenTotals.clear(); }
+      else return;
+    }
     const delta = codexDelta(last, total, previousTotal);
+    if (totalKey) seenTotals.add(totalKey);
     if (total) previousTotal = total;
     else if (last) previousTotal = addTriple(previousTotal, last);
     if (!delta || delta.input + delta.output === 0) return;
-    const timestamp = dateString(root.timestamp);
-    if (!timestamp) return;
     const rawModel = firstString(info.model, info.model_name, payload.model, root.model);
     const model = currentModel !== "unknown"
       ? currentModel
@@ -466,6 +477,9 @@ async function parseCodexFile(
       timestamp,
       day: localDay(new Date(timestamp)),
       model,
+      reportedModel: reportedModel !== "unknown" ? reportedModel : rawModel ?? "unknown",
+      pricingVersion: catalog.revision,
+      rawTokens: { ...numericUsageFields(info.last_token_usage, "last"), ...numericUsageFields(info.total_token_usage, "total") },
       sessionID,
       projectPath,
       projectLabel: projectName(projectPath),
@@ -476,7 +490,7 @@ async function parseCodexFile(
       outputTokens: delta.output,
       totalTokens: delta.input + delta.output,
       estimatedCostUSD: estimateCodexCost(costInput, catalog),
-      eventKey: `codex|${timestamp}|${turnID ?? ""}|${model}|${tier}|${delta.input}|${cached}|${cacheCreation}|${delta.output}`
+      eventKey: `codex|${timestamp}|${turnID ?? sessionID}|${model}|${tier}|${delta.input}|${cached}|${cacheCreation}|${delta.output}`
     });
   });
 
@@ -487,7 +501,7 @@ async function parseCodexFile(
       projectPath,
       projectLabel: projectName(projectPath)
     })),
-    skippedLines
+    skippedLines, oversizedLines
   };
 }
 
@@ -499,39 +513,47 @@ async function parseClaudeFile(
 ): Promise<ParsedFile> {
   let skippedLines = 0;
   const records: UsageRecord[] = [];
-  await scanLines(file, signal, maxLineBytes, (line, final) => {
+  let anonymousOrdinal = 0;
+  const oversizedLines = await scanLines(file, signal, maxLineBytes, "claude", (line, final) => {
     if (!line.includes("\"assistant\"") || !line.includes("\"usage\"")) return;
     const root = parseObject(line);
     if (!root) {
       // The active session file can end mid-entry while the tool is still writing it.
-      if (!final) skippedLines += 1;
+      if ((!final || /\}\s*$/u.test(line)) && couldContainUsage("claude", line)) skippedLines += 1;
       return;
     }
     if (stringValue(root.type) !== "assistant" || isVertexClaudeRecord(root)) return;
     const message = objectValue(root.message);
     const usage = objectValue(message?.usage);
     const timestamp = dateString(root.timestamp);
-    const rawModel = stringValue(message?.model);
-    if (!message || !usage || !timestamp || !rawModel) return;
+    const rawModel = firstString(message?.model) ?? "unknown";
+    if (!message || !usage) return;
+    if (!timestamp) { skippedLines += 1; return; }
     const inputTokens = integerValue(usage.input_tokens);
     const cachedInputTokens = integerValue(usage.cache_read_input_tokens);
     const cacheCreation = objectValue(usage.cache_creation);
     const cacheCreation5mInputTokens = integerValue(cacheCreation?.ephemeral_5m_input_tokens);
     const cacheCreation1hInputTokens = integerValue(cacheCreation?.ephemeral_1h_input_tokens);
     const cacheCreationBreakdown = cacheCreation5mInputTokens + cacheCreation1hInputTokens;
-    const cacheCreationInputTokens = cacheCreationBreakdown > 0
-      ? cacheCreationBreakdown
-      : integerValue(usage.cache_creation_input_tokens);
+    const cacheCreationInputTokens = usage.cache_creation_input_tokens !== undefined
+      ? integerValue(usage.cache_creation_input_tokens)
+      : cacheCreationBreakdown;
     const outputTokens = integerValue(usage.output_tokens);
     const totalTokens = inputTokens + cachedInputTokens + cacheCreationInputTokens + outputTokens;
-    if (totalTokens === 0) return;
+    const complete = [usage.input_tokens, usage.output_tokens].every(isTokenCount)
+      && [usage.cache_read_input_tokens, usage.cache_creation_input_tokens,
+        cacheCreation?.ephemeral_5m_input_tokens, cacheCreation?.ephemeral_1h_input_tokens]
+        .every(value => value === undefined || isTokenCount(value))
+      && (usage.cache_creation === undefined || cacheCreation !== null)
+      && cacheCreationBreakdown <= cacheCreationInputTokens
+      && Number.isSafeInteger(totalTokens);
+    if (totalTokens === 0 && complete) return;
     const model = normalizeClaudeModel(rawModel);
     const metadata = objectValue(root.metadata);
     const sessionID = firstString(
       root.sessionId,
       root.session_id,
-      metadata?.sessionId,
-      message.id
+      metadata?.sessionId
     ) ?? path.basename(file, path.extname(file));
     const projectPath = firstString(root.cwd, root.projectPath, metadata?.cwd, metadata?.projectPath);
     const resolvedProjectLabel = projectName(projectPath, path.basename(path.dirname(file)));
@@ -549,7 +571,11 @@ async function parseClaudeFile(
       occurredAt: timestamp,
       speed
     };
-    const messageID = firstString(message.id, root.requestId, root.request_id);
+    const messageID = firstString(message.id);
+    const requestID = firstString(root.requestId, root.request_id);
+    const identity = messageID
+      ? JSON.stringify(requestID ? [messageID, requestID] : [sessionID, messageID])
+      : requestID ? JSON.stringify([sessionID, requestID]) : null;
     records.push({
       timestamp,
       day: localDay(new Date(timestamp)),
@@ -563,45 +589,95 @@ async function parseClaudeFile(
       cacheCreationInputTokens,
       outputTokens,
       totalTokens,
-      estimatedCostUSD: estimateClaudeCost(costInput, catalog),
-      eventKey: messageID
-        ? `claude|${messageID}`
-        : `claude|${timestamp}|${model}|${speed}|${inputTokens}|${cachedInputTokens}|${cacheCreationInputTokens}|${cacheCreation1hInputTokens}|${outputTokens}`
+      estimatedCostUSD: complete ? estimateClaudeCost(costInput, catalog) : null,
+      measurement: complete ? "known" : "unknown",
+      reportedModel: rawModel,
+      pricingVersion: catalog.revision,
+      rawTokens: numericUsageFields(usage, "usage"),
+      eventIdentity: identity ? "source" : "fingerprint",
+      eventKey: identity
+        ? `claude|${identity}`
+        : `claude|${file}|${anonymousOrdinal++}|${timestamp}`
     });
   });
-  return { records, skippedLines };
+  return { records, skippedLines, oversizedLines };
 }
 
-/** Reads a JSONL file line by line, flagging the last line so callers can treat it as an in-progress write. */
+/** Retains at most maxLineBytes per record, even for a multi-megabyte tool result. */
 async function scanLines(
   file: string,
   signal: AbortSignal,
   maxLineBytes: number,
+  provider: AnalyticsProvider,
   onLine: (line: string, final: boolean) => void
-): Promise<void> {
-  const stream = createReadStream(file, { encoding: "utf8" });
-  const lines = createInterface({ input: stream, crlfDelay: Infinity });
-  const emit = (line: string, final: boolean): void => {
-    if (Buffer.byteLength(line, "utf8") <= maxLineBytes) onLine(line, final);
-  };
-  let pending: string | null = null;
-  try {
-    for await (const line of lines) {
-      signal.throwIfAborted();
-      if (pending !== null) emit(pending, false);
-      pending = line;
+): Promise<number> {
+  let oversized = 0;
+  const stream = createReadStream(file, { signal });
+  let parts: Buffer[] = [];
+  let length = 0;
+  let retained = 0;
+  let lastNonWhitespace = 0;
+  const append = (part: Buffer): void => {
+    length += part.length;
+    for (let index = part.length - 1; index >= 0; index -= 1) {
+      const byte = part[index]!;
+      if (byte !== 32 && byte !== 9 && byte !== 13) { lastNonWhitespace = byte; break; }
     }
-    if (pending !== null) emit(pending, true);
+    if (retained < maxLineBytes) {
+      const prefix = part.subarray(0, maxLineBytes - retained);
+      parts.push(prefix);
+      retained += prefix.length;
+    }
+  };
+  const emit = (final: boolean): void => {
+    const line = Buffer.concat(parts, retained).toString("utf8").replace(/\r$/u, "");
+    if (length <= maxLineBytes) onLine(line, final);
+    else if ((!final || lastNonWhitespace === 125) && couldContainUsage(provider, line)) oversized += 1;
+    parts = []; length = 0; retained = 0; lastNonWhitespace = 0;
+  };
+  try {
+    for await (const chunk of stream) {
+      signal.throwIfAborted();
+      const buffer = chunk as Buffer;
+      let start = 0;
+      let end: number;
+      while ((end = buffer.indexOf(10, start)) !== -1) {
+        append(buffer.subarray(start, end));
+        emit(false);
+        start = end + 1;
+      }
+      append(buffer.subarray(start));
+    }
+    if (length > 0) emit(true);
+    return oversized;
   } finally {
-    lines.close();
     stream.destroy();
   }
+}
+
+/** Read structural fields from a bounded prefix. Nested content cannot impersonate a record type. */
+function couldContainUsage(provider: AnalyticsProvider, line: string): boolean {
+  let type: unknown;
+  let payloadType: unknown;
+  visit(line, {
+    onLiteralValue(value, _offset, _length, _line, _character, getPath) {
+      const path = getPath();
+      if (path.length === 1 && path[0] === "type") type = value;
+      if (path.length === 2 && path[0] === "payload" && path[1] === "type") payloadType = value;
+    }
+  });
+  if (type === undefined) return true;
+  if (provider === "claude") return type === "assistant";
+  if (type === "session_meta" || type === "turn_context" || type === "world_state") return true;
+  if (type !== "event_msg") return false;
+  return payloadType === undefined || payloadType === "token_count" || payloadType === "thread_settings_applied" || payloadType === "task_started";
 }
 
 function deduplicateRecords(records: UsageRecord[]): UsageRecord[] {
   const seen = new Set<string>();
   return records
-    .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.eventKey.localeCompare(right.eventKey))
+    .sort((left, right) => Number(left.measurement === "unknown") - Number(right.measurement === "unknown")
+      || right.timestamp.localeCompare(left.timestamp) || right.totalTokens - left.totalTokens || left.eventKey.localeCompare(right.eventKey))
     .filter((record) => {
       if (seen.has(record.eventKey)) return false;
       seen.add(record.eventKey);
@@ -620,13 +696,16 @@ export function buildAnalytics(
   explicitCoverage?: { start: string; end: string },
   timeZone?: string
 ): LocalUsageAnalytics {
+  timeZone ??= Intl.DateTimeFormat().resolvedOptions().timeZone;
   const requestedCoverageEnd = localCalendarDay(now, timeZone);
-  const hourFormat = timeZone ? new Intl.DateTimeFormat("en", { timeZone, hour: "2-digit", hourCycle: "h23" }) : null;
+  const hourFormat = timeZone ? new Intl.DateTimeFormat("en", { timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }) : null;
   if (timeZone) allRecords = allRecords.map(record => ({ ...record, day: localCalendarDay(new Date(record.timestamp), timeZone) }));
   const requestedCoverageStart = shiftDay(requestedCoverageEnd, -(historyDays - 1));
-  const records = allRecords.filter(
-    (record) => record.day >= requestedCoverageStart && record.day <= requestedCoverageEnd
-  );
+  const inRange = allRecords.filter(record => record.day >= requestedCoverageStart && record.day <= requestedCoverageEnd);
+  const unknownCount = inRange.filter(record => record.measurement === "unknown").length;
+  if (unknownCount > 0 && !partial) partialMessage = `${countLabel(unknownCount, "usage entry", "usage entries")} had missing or invalid token counts. Totals include only complete entries.`;
+  partial ||= unknownCount > 0;
+  const records = inRange.filter(record => record.measurement !== "unknown");
   const coverageStart = explicitCoverage?.start
     ?? records.reduce<string | null>(
       (earliest, record) => earliest === null || record.day < earliest ? record.day : earliest,
@@ -651,7 +730,11 @@ export function buildAnalytics(
   for (const record of records) {
     addRecord(totals, record);
     addBreakdown(days, record.day, record.day, record);
-    const hourKey = `${record.day}T${String(hourFormat ? Number(hourFormat.format(new Date(record.timestamp))) : new Date(record.timestamp).getHours()).padStart(2, "0")}`;
+    const timestamp = new Date(record.timestamp);
+    const parts = hourFormat!.formatToParts(timestamp);
+    const part = (name: string) => Number(parts.find(p => p.type === name)?.value);
+    const utcStart = new Date(timestamp.valueOf() - part("minute") * 60_000 - part("second") * 1_000 - timestamp.getUTCMilliseconds()).toISOString();
+    const hourKey = `${record.day}T${String(part("hour")).padStart(2, "0")}|${utcStart}`;
     addBreakdown(hours, hourKey, hourKey, record);
     addBreakdown(models, record.model, record.model, record);
     addBreakdown(modelDays, `${record.day} ${record.model}`, record.model, record);
@@ -694,7 +777,8 @@ export function buildAnalytics(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => ({
       date: key.slice(0, 10),
-      hour: Number(key.slice(11)),
+      hour: Number(key.slice(11, 13)),
+      utcStart: key.split("|")[1],
       ...finalizeTotals(value.totals)
     }));
   // Trimmed by size rather than by date so a busy model keeps its whole history when
@@ -732,6 +816,14 @@ export function buildAnalytics(
     .slice(0, MAX_SESSIONS);
 
   return {
+    collection: {
+      events: allRecords,
+      parserVersion: USAGE_PARSER_VERSION,
+      pricingVersion: allRecords.find(record => record.pricingVersion)?.pricingVersion ?? null,
+      timeZone, coverageStart, coverageEnd,
+      status: partial ? "partial" : records.length ? "available" : "no_data",
+      filesScanned, recordsProcessed: records.length, reasonCode: error?.code ?? null
+    },
     status: records.length === 0 ? (partial ? "partial" : "no_data") : (partial ? "partial" : "available"),
     source,
     historyDays,
@@ -839,14 +931,20 @@ interface TokenTriple {
   output: number;
 }
 
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function tokenTriple(value: Record<string, unknown> | null): TokenTriple | null {
-  if (!value) return null;
-  return {
-    input: integerValue(value.input_tokens),
-    cached: integerValue(value.cached_input_tokens ?? value.cache_read_input_tokens),
-    cacheWrite: integerValue(value.cache_write_input_tokens ?? value.cache_creation_input_tokens),
-    output: integerValue(value.output_tokens)
-  };
+  if (!value || ![value.input_tokens, value.output_tokens].every(isTokenCount)) return null;
+  const optional = [value.cached_input_tokens, value.cache_read_input_tokens, value.cache_write_input_tokens, value.cache_creation_input_tokens];
+  if (!optional.every(count => count === undefined || isTokenCount(count))) return null;
+  const input = integerValue(value.input_tokens);
+  const cached = Math.max(integerValue(value.cached_input_tokens), integerValue(value.cache_read_input_tokens));
+  const cacheWrite = Math.max(integerValue(value.cache_write_input_tokens), integerValue(value.cache_creation_input_tokens));
+  const output = integerValue(value.output_tokens);
+  if (cached + cacheWrite > input || !Number.isSafeInteger(input + output)) return null;
+  return { input, cached, cacheWrite, output };
 }
 
 function codexDelta(last: TokenTriple | null, total: TokenTriple | null, previous: TokenTriple | null): TokenTriple | null {
@@ -928,8 +1026,7 @@ function firstString(...values: unknown[]): string | null {
 }
 
 function integerValue(value: unknown): number {
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(number) && number > 0 ? number : 0;
+  return isTokenCount(value) ? value : 0;
 }
 
 function dateString(value: unknown): string | null {
@@ -961,7 +1058,7 @@ function projectName(projectPath: string | null, fallback = "Unknown project"): 
 
 function shortSessionLabel(sessionID: string): string {
   const clean = sessionID.replace(/^rollout-[^-]+-[^-]+-/u, "");
-  return clean.length > 20 ? `${clean.slice(0, 8)}…${clean.slice(-6)}` : clean;
+  return clean.length > 20 ? `${clean.slice(0, 8)}â€¦${clean.slice(-6)}` : clean;
 }
 
 function normalizeServiceTier(value: string | null): string | null {
@@ -991,4 +1088,17 @@ function roundCost(value: number): number {
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+/** Only numeric usage fields are retained. Text, messages, and other source data never enter the ledger. */
+export function numericUsageFields(value: unknown, prefix = ""): Record<string, number | null> {
+  const result: Record<string, number | null> = {};
+  for (const [key, field] of Object.entries(objectValue(value) ?? {})) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,30}$/.test(key)) continue;
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (typeof field === "number") result[name] = Number.isSafeInteger(field) && field >= 0 ? field : null;
+    else if (field === null) result[name] = null;
+    else if (objectValue(field) && !prefix.includes(".")) Object.assign(result, numericUsageFields(field, name));
+  }
+  return result;
 }

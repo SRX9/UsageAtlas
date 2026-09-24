@@ -38,7 +38,9 @@ export class CloudAccount {
   );
   constructor(
     private readonly engine: EngineManager,
-    private readonly changed: () => void,
+    private readonly configureEngine: (
+      accountId: string, operation: () => Promise<unknown>, reconnect: boolean
+    ) => Promise<unknown> = (_accountId, operation) => operation(),
   ) {}
   async initialize(): Promise<void> {
     try {
@@ -62,9 +64,17 @@ export class CloudAccount {
     const state = (await this.engine.cloud({
       operation: "status",
     })) as unknown as UsageCloudState;
+    const account = this.session?.user ?? null;
+    if (state.accountId !== (account?.id ?? null)) {
+      return {
+        accountId: null, account: null, automatic: false, pending: 0,
+        busy: this.error === null, progress: null, lastCompleted: null,
+        conflicts: [], loginCode: this.login?.userCode ?? null, error: this.error
+      };
+    }
     return {
       ...state,
-      account: this.session?.user ?? null,
+      account,
       loginCode: this.login?.userCode ?? null,
       error: this.error ?? state.error,
     };
@@ -124,7 +134,6 @@ export class CloudAccount {
       }
       if (this.loginAttempt !== attempt) return;
       this.schedulePoll();
-      this.changed();
     } catch (error) {
       if (this.loginAttempt !== attempt) return;
       this.cancelLogin();
@@ -139,13 +148,26 @@ export class CloudAccount {
     const session = this.session;
     this.session = null;
     this.error = null;
-    if (existsSync(this.filename)) unlinkSync(this.filename);
-    await this.configure();
-    if (session)
-      await this.request("/api/auth/sign-out", {}, session.token).catch(
-        () => undefined,
-      );
-    this.changed();
+    let removalError: Error | null = null;
+    try {
+      if (existsSync(this.filename)) unlinkSync(this.filename);
+    } catch {
+      removalError = new Error("The saved sign-in could not be removed. Close other UsageAtlas windows and try signing out again.");
+    }
+    // A locked session file must not leave automatic cloud saves connected.
+    try {
+      await this.configure();
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : "Could not disconnect cloud sync. Close UsageAtlas and try again.";
+      throw error;
+    } finally {
+      if (session)
+        await this.request("/api/auth/sign-out", {}, session.token).catch(() => undefined);
+    }
+    if (removalError) {
+      this.error = removalError.message;
+      throw removalError;
+    }
   }
   async operation(
     operation: "save" | "restore" | "automatic" | "resolve",
@@ -158,21 +180,21 @@ export class CloudAccount {
     if (!this.session) throw new Error("Sign in first.");
     this.error = null;
     await this.engine.cloud({ operation, ...values });
-    this.changed();
   }
   close(): void {
     this.cancelLogin();
   }
   async reconnect(): Promise<void> {
-    await this.configure();
+    await this.configure(true);
   }
-  private configure(): Promise<unknown> {
-    return this.engine.cloud({
+  private configure(reconnect = false): Promise<unknown> {
+    const params = {
       operation: "configure",
       accountId: this.session?.user.id ?? "",
       token: this.session?.token ?? "",
       baseURL: BASE_URL,
-    });
+    };
+    return this.configureEngine(params.accountId, () => this.engine.cloud(params), reconnect);
   }
   private schedulePoll(): void {
     if (!this.login) return;
@@ -231,7 +253,6 @@ export class CloudAccount {
       this.error = error instanceof Error ? error.message : "Sign-in failed.";
       this.cancelLogin();
     }
-    this.changed();
   }
   private cancelLogin(): void {
     if (this.timer) clearTimeout(this.timer);

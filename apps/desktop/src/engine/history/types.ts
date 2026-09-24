@@ -2,7 +2,9 @@ import type { DashboardProvider, HistoryDayPayload, HistoryDayRecord } from "@us
 
 export interface HistoryStore {
   replicaId(): string;
+  saveCollection?(providerId: string, accountKey: string, analytics: import("@usageatlas/contracts").LocalUsageAnalytics): void;
   reportingTimeZone?(providerId: string, accountKey: string): string;
+  needsCollectionRefresh?(providerId: string, accountKey: string): boolean;
   needsTimezoneRefresh?(providerId: string, accountKey: string): boolean;
   get(providerId: string, accountKey: string, localDay: string): HistoryDayRecord | null;
   getRange(providerId: string, startDay: string, endDay: string): HistoryDayRecord[];
@@ -19,5 +21,5 @@ export interface HistoryStore {
   sealDraftsBefore(providerId: string, today: string): HistoryDayRecord[];
   saveCapacity?(providerId: string, accountKey: string, live: Omit<DashboardProvider, "id" | "name" | "enabled">): void;
   latestCapacity?(providerId: string): HistoryDayRecord | null;
-  close?(): void;
+  close?(): void | Promise<void>;
 }

@@ -16,6 +16,18 @@ afterEach(async () => {
 });
 
 describe("local usage analytics", () => {
+  it("selects a completed Claude message over an earlier observation and preserves missing counters as unknown", async () => {
+    const home = await createHome();
+    const folder = path.join(home, ".claude", "projects", "example"); await mkdir(folder, { recursive: true });
+    await writeJsonl(path.join(folder, "events.jsonl"), [
+      { type: "assistant", timestamp: "2026-07-17T10:00:00Z", message: { id: "message", model: "claude-sonnet-4-6", usage: { input_tokens: 10, output_tokens: 1 } } },
+      { type: "assistant", timestamp: "2026-07-17T10:00:01Z", message: { id: "message", model: "claude-sonnet-4-6", usage: { input_tokens: 10, output_tokens: 20 } } },
+      { type: "assistant", timestamp: "2026-07-17T11:00:00Z", message: { id: "unknown", model: "claude-sonnet-4-6", usage: { input_tokens: 15 } } }
+    ]);
+    const a = await new LocalUsageScanner({ homeDirectory: home, environment: {} }).scan("claude", context());
+    expect(a.totals.totalTokens).toBe(30); expect(a.totals.requests).toBe(1); expect(a.status).toBe("partial");
+    expect(a.collection?.events.find(r => r.measurement === "unknown")?.rawTokens).toEqual({ "usage.input_tokens": 15 });
+  });
   it("reconstructs Codex totals, models, projects, sessions, tiers, and estimated cost", async () => {
     const home = await createHome();
     const sessions = path.join(home, ".codex", "sessions", "2026", "07", "17");
@@ -113,12 +125,58 @@ describe("local usage analytics", () => {
     const analytics = await scanner.scan("codex", context());
 
     expect(analytics.status).toBe("partial");
-    expect({ ...analytics, status: readable.status, error: readable.error }).toEqual(readable);
+    expect({ ...analytics, collection: readable.collection, status: readable.status, error: readable.error }).toEqual(readable);
     expect(analytics.totals.estimatedCostUSD).toBeGreaterThan(0);
     expect(analytics.error?.code).toBe("analytics_partial");
     expect(analytics.error?.message).toBe(
       "1 log entry could not be parsed. Totals and cost estimates include the entries that could be read."
     );
+  });
+
+  it("ignores oversized transcript entries that have no usage counters", async () => {
+    const home = await createHome();
+    const codexDirectory = path.join(home, ".codex", "sessions");
+    const claudeDirectory = path.join(home, ".claude", "projects", "example");
+    await mkdir(codexDirectory, { recursive: true });
+    await mkdir(claudeDirectory, { recursive: true });
+    await writeJsonl(path.join(codexDirectory, "large.jsonl"), [
+      ...codexSession,
+      { type: "event_msg", payload: { type: "item_completed", item: { text: "x".repeat(70_000) } } },
+      { type: "response_item", payload: "x".repeat(70_000) },
+      { type: "compacted", payload: "x".repeat(70_000) }
+    ]);
+    await writeJsonl(path.join(claudeDirectory, "large.jsonl"), [
+      ...claudeSession,
+      { type: "user", message: { content: "x".repeat(70_000) } }
+    ]);
+
+    const scanner = new LocalUsageScanner({ homeDirectory: home, environment: {}, maxLineBytes: 65_536 });
+    const codex = await scanner.scan("codex", context());
+    const claude = await scanner.scan("claude", context());
+    expect(codex.status).toBe("available");
+    expect(codex.error).toBeNull();
+    expect(codex.totals.totalTokens).toBe(1_330);
+    expect(claude.status).toBe("available");
+    expect(claude.error).toBeNull();
+    expect(claude.totals.totalTokens).toBe(745);
+  });
+
+  it("reports oversized source entries as incomplete without inventing zero usage", async () => {
+    const home = await createHome(); const directory = path.join(home, ".codex", "sessions");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "oversized.jsonl"), JSON.stringify({ type: "event_msg", payload: { type: "token_count", filler: "x".repeat(70_000) } }) + "\n");
+    const a = await new LocalUsageScanner({ homeDirectory: home, environment: {}, maxLineBytes: 65_536 }).scan("codex", context());
+    expect(a.status).toBe("partial"); expect(a.error?.code).toBe("analytics_partial");
+    expect(a.collection?.events).toEqual([]);
+  });
+
+  it("uses the requested reporting timezone throughout a local scan", async () => {
+    const home = await createHome(); const directory = path.join(home, ".codex", "sessions");
+    await mkdir(directory, { recursive: true }); await writeJsonl(path.join(directory, "fixture.jsonl"), codexSession);
+    const a = await new LocalUsageScanner({ homeDirectory: home, environment: {} }).scan("codex", { ...context(), timeZone: "Pacific/Honolulu" });
+    expect(a.collection?.timeZone).toBe("Pacific/Honolulu");
+    expect(a.hourly?.every(hour => typeof hour.utcStart === "string")).toBe(true);
+    expect(a.hourly?.reduce((sum,hour) => sum + hour.totalTokens, 0)).toBe(a.totals.totalTokens);
   });
 
   it("explains the file cap instead of blaming the logs when discovery is truncated", async () => {

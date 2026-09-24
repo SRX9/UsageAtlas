@@ -117,9 +117,8 @@
         "modelKey": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 96,
-          "pattern": "^[a-z0-9][a-z0-9._:/-]*$",
-          "description": "Must also match the shared approved public-model catalog, or be other. Pattern validation alone does not establish a safe identifier."
+          "maxLength": 256,
+          "description": "Private tool-reported model identifier. Public views apply a separate display catalog."
         },
         "totals": {
           "$ref": "#/$defs/totals"
@@ -303,7 +302,7 @@
           "anyOf": [
             {
               "type": "array",
-              "maxItems": 64,
+              "maxItems": 1024,
               "items": {
                 "$ref": "#/$defs/model"
               }
@@ -312,6 +311,30 @@
               "type": "null"
             }
           ]
+        },
+        "breakdownCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hourly",
+            "models"
+          ],
+          "properties": {
+            "hourly": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown"
+              ]
+            },
+            "models": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown"
+              ]
+            }
+          }
         }
       }
     },

@@ -238,7 +238,7 @@ jobs:
             @(Get-ChildItem "apps\desktop\out\make" -Recurse -Filter "*.exe" | ForEach-Object FullName)
           foreach ($file in $files) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file
-            if ($signature.Status -ne "Valid") { throw "Invalid signature for $file: $($signature.Status)" }
+            if ($signature.Status -ne "Valid") { throw "Invalid signature for ${file}: $($signature.Status)" }
           }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

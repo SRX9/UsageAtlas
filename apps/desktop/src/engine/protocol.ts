@@ -1,3 +1,4 @@
+import type { LocalImportProgress } from "../shared/desktop-api";
 import type { JsonValue } from "@usageatlas/contracts";
 
 export const ENGINE_MESSAGE_LIMIT = 1_048_576;
@@ -15,6 +16,21 @@ export interface EngineRefreshProgress {
 
 export interface EngineProgressMessage extends EngineRefreshProgress {
   type: "engine.progress";
+}
+
+export interface EngineImportMessage {
+  type: "engine.import-progress";
+  accountId: string;
+  progress: LocalImportProgress | null;
+}
+
+export function isEngineImportMessage(value: unknown): value is EngineImportMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Partial<EngineImportMessage>;
+  if (message.type !== "engine.import-progress" || typeof message.accountId !== "string") return false;
+  const p = message.progress;
+  return p === null || Boolean(p && Number.isSafeInteger(p.completed) && Number.isSafeInteger(p.total)
+    && p.completed >= 0 && p.total >= p.completed && (p.error === null || typeof p.error === "string"));
 }
 
 export interface EngineRequest {

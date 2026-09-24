@@ -27,7 +27,8 @@ async function refreshOpenCode(
   const snapshot = await usageScanner.scan({
     signal: context.signal,
     now: context.now,
-    historyDays
+    historyDays,
+    timeZone: context.reportingTimeZoneForAccount?.("local")
   });
   return {
     source: snapshot.hasGoPlan ? "opencode_local_estimate" : "local_sessions",

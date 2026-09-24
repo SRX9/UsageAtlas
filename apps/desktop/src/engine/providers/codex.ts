@@ -84,7 +84,8 @@ async function refreshCodex(
   const analyticsPromise = scanProviderAnalytics(analyticsScanner, "codex", {
     signal: context.signal,
     now: context.now,
-    historyDays
+    historyDays,
+    timeZone: context.reportingTimeZoneForAccount?.("local")
   });
   try {
     const payload = await (options.appServer ?? readCodexRateLimits)(context.signal);

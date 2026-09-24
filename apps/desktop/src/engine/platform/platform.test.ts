@@ -6,6 +6,7 @@ import { ProviderError } from "../provider";
 import { credentialLocations } from "./credentials";
 import { fetchProviderJson } from "./http";
 import { readCredentialJson } from "./json-file";
+import { openWritableSqlite } from "./sqlite";
 import { redactDiagnostic } from "./redaction";
 
 const directories: string[] = [];
@@ -15,6 +16,28 @@ afterEach(async () => {
 });
 
 describe("engine platform services", () => {
+  it("checkpoints on a separate connection and closes it before reopening the database", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-checkpoint-")); directories.push(directory);
+    const file = path.join(directory, "history.sqlite");
+    const db = openWritableSqlite(file);
+    try {
+      await vi.waitFor(() => expect(db.get("PRAGMA wal_autocheckpoint")?.wal_autocheckpoint).toBe(0));
+      expect(db.get("PRAGMA synchronous")?.synchronous).toBe(2);
+      db.exec("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)");
+      await db.commit(Array.from({ length: 1000 }, (_, i) => ({ sql: "INSERT INTO sample VALUES (?, ?)", parameters: [i, "x".repeat(1024)] })));
+      await expect(db.commit([
+        { sql: "INSERT INTO sample VALUES (?, ?)", parameters: [1000, "rollback"] },
+        { sql: "INSERT INTO missing_table VALUES (1)", parameters: [] }
+      ])).rejects.toThrow();
+      expect(db.get("SELECT count(*) AS count FROM sample")?.count).toBe(1000);
+    } finally { await db.close(); }
+    const reopened = openWritableSqlite(file);
+    try {
+      expect(reopened.get("SELECT count(*) AS count FROM sample")?.count).toBe(1000);
+      expect(reopened.get("PRAGMA integrity_check")?.integrity_check).toBe("ok");
+    } finally { await reopened.close(); }
+  });
+
   it("resolves the Claude credential override on every platform", () => {
     const locations = credentialLocations(
       { CLAUDE_CONFIG_DIR: "C:\\profiles\\claude" },

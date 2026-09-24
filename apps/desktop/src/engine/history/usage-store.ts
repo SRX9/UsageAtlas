@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { StatisticsStore } from "./statistics-store";
+import { readHistoryDayPayload } from "./payload";
+import { previewModelRecovery } from "./usage-payload";
 import {
   canonicalUsage,
   sameUsage,
@@ -38,9 +42,16 @@ CREATE TABLE IF NOT EXISTS usage_setting (key TEXT PRIMARY KEY, value TEXT NOT N
 `;
 
 export class UsageStore {
+  readonly statistics: StatisticsStore;
   onChange?: () => void;
   constructor(readonly db: WritableSqliteDatabase) {
     db.exec(SCHEMA);
+    db.exec(`CREATE TABLE IF NOT EXISTS usage_record_history (
+      owner TEXT NOT NULL, id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+      payload TEXT NOT NULL, details TEXT, archived_at TEXT NOT NULL,
+      PRIMARY KEY(owner,id,fingerprint)
+    )`);
+    this.statistics = new StatisticsStore(db, () => this.owner);
     if (!db.all("PRAGMA table_info(usage_record)").some((column) => column.name === "save_error"))
       db.exec("ALTER TABLE usage_record ADD COLUMN save_error TEXT");
   }
@@ -117,7 +128,12 @@ export class UsageStore {
       });
   }
   put(record: UsageRecord, details: string | null = null, owner = this.owner): LocalRecord {
+    if (record.kind === "usage_day" && details) {
+      const source = readHistoryDayPayload(details);
+      record = (source && previewModelRecovery(record, source)) || record;
+    }
     const existing = this.get(record.recordId, owner);
+    if (existing && (details !== existing.details || !sameUsage(existing.record, record))) this.archive(existing);
     if (existing && sameUsage(existing.record, record)) {
       if (details !== existing.details || existing.saveError)
         this.db.run("UPDATE usage_record SET details = ?, save_error = NULL WHERE owner = ? AND id = ?", [
@@ -209,7 +225,7 @@ export class UsageStore {
       "SELECT COALESCE(SUM(local_version > saved_version), 0) AS pending, COALESCE(SUM(conflict IS NOT NULL AND save_error IS NULL), 0) AS conflicts, COALESCE(SUM(local_version > saved_version AND save_error IS NOT NULL), 0) AS invalid FROM usage_record WHERE owner IN (?, '')",
       [this.owner]
     );
-    return { pending: Number(row?.pending), conflicts: Number(row?.conflicts), invalid: Number(row?.invalid) };
+    return { pending: Number(row?.pending) + this.statistics.pendingCount(), conflicts: Number(row?.conflicts), invalid: Number(row?.invalid) };
   }
   acknowledge(sent: PendingRecord, remote: CloudRecord): void {
     this.db.run(
@@ -227,14 +243,14 @@ export class UsageStore {
         this.setSetting(`timezone:${this.owner}:${remote.record.sourceId}`, remote.record.timeZone);
       const local = this.get(remote.record.recordId);
       if (!local) {
-        const inserted = this.put(remote.record);
+        const inserted = this.put(remote.record, local ? this.compatibleDetails(local, remote.record) : null);
         this.acknowledge(inserted, remote);
       } else if (remote.revision < local.revision) {
         return;
       } else if (sameUsage(local.record, remote.record)) {
         this.acknowledge(local, remote);
       } else if (local.localVersion === local.savedVersion) {
-        const updated = this.put(remote.record);
+        const updated = this.put(remote.record, local ? this.compatibleDetails(local, remote.record) : null);
         this.acknowledge(updated, remote);
       } else if (remote.revision !== local.revision) {
         this.db.run("UPDATE usage_record SET conflict = ? WHERE owner = ? AND id = ?", [
@@ -251,7 +267,7 @@ export class UsageStore {
       if (!local?.conflict) throw new Error("This conflict no longer exists.");
       const remote = local.conflict;
       if (choice === "cloud") {
-        const updated = this.put(remote.record);
+        const updated = this.put(remote.record, local ? this.compatibleDetails(local, remote.record) : null);
         this.acknowledge(updated, remote);
       } else {
         this.db.run(
@@ -261,6 +277,19 @@ export class UsageStore {
       }
     });
     this.onChange?.();
+  }
+  private compatibleDetails(local: LocalRecord, incoming: UsageRecord): string | null {
+    if (incoming.kind !== "usage_day" || local.record.kind !== "usage_day") return null;
+    const previous = local.record.totals, next = incoming.totals;
+    if (!previous || !next) return null;
+    return (Object.keys(previous) as (keyof typeof previous)[]).every(key => previous[key] === next[key]) ? local.details : null;
+  }
+  private archive(local: LocalRecord): void {
+    const payload = canonicalUsage(local.record);
+    const fingerprint = createHash("sha256").update(payload).update(local.details ?? "").digest("hex");
+    this.db.run("INSERT OR IGNORE INTO usage_record_history VALUES (?,?,?,?,?,?)", [
+      local.owner, local.record.recordId, fingerprint, payload, local.details, new Date().toISOString()
+    ]);
   }
   transaction<T>(operation: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");

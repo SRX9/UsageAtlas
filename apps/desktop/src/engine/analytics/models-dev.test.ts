@@ -17,6 +17,12 @@ afterEach(async () => {
 });
 
 describe("models.dev catalog", () => {
+  it("uses the rate content as its revision instead of cache download time", () => {
+    const source = { openai: { models: { future: { cost: { input: 1, output: 2 } } } } };
+    expect(parseModelsDevCatalog(source, "yesterday").revision).toBe(parseModelsDevCatalog(source, "today").revision);
+    expect(parseModelsDevCatalog({ openai: { models: { future: { cost: { input: 1, output: 3 } } } } }).revision)
+      .not.toBe(parseModelsDevCatalog(source).revision);
+  });
   it("converts per-million rates and long-context tiers", () => {
     const catalog = parseModelsDevCatalog({
       anthropic: {

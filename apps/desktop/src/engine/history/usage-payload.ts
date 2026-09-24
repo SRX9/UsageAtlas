@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { HistoryDayPayload, HistoryDayRecord, UsageTotals } from "@usageatlas/contracts";
 import {
-  PUBLIC_MODELS,
+  validateUsageRecord,
   type UsageDay,
   type UsageProvider,
   type StoredTotals,
@@ -20,7 +20,7 @@ export function toUsageDay(row: HistoryDayRecord, replica: string, timeZone: str
   const sourceId = usageSource(replica, row.providerId, row.accountKey);
   const groups = new Map<string, UsageTotals[]>();
   for (const model of row.payload.models) {
-    const key = PUBLIC_MODELS.has(model.id) ? model.id : "other";
+    const key = model.id;
     groups.set(key, [...(groups.get(key) ?? []), model]);
   }
   return {
@@ -35,12 +35,16 @@ export function toUsageDay(row: HistoryDayRecord, replica: string, timeZone: str
     observedAt: row.payload.capturedAt,
     collectionMethod: row.payload.analyticsSource === "remote_usage" ? "provider_history" : "local_activity",
     status: row.payload.status,
+    breakdownCoverage: {
+      hourly: coverage(row.payload.hourly, row.payload.totals, row.payload.status),
+      models: coverage(row.payload.models, row.payload.totals, row.payload.status)
+    },
     totals: row.payload.status === "unavailable" ? null : storedTotals(row.payload.totals),
     hourly:
       row.payload.status === "unavailable"
         ? null
         : row.payload.hourly
-            .map((hour) => ({ localHour: hour.hour, utcStart: null, totals: storedTotals(hour) }))
+            .map((hour) => ({ localHour: hour.hour, utcStart: hour.utcStart ?? null, totals: storedTotals(hour) }))
             .sort((a, b) => a.localHour - b.localHour),
     models:
       row.payload.status === "unavailable"
@@ -50,6 +54,33 @@ export function toUsageDay(row: HistoryDayRecord, replica: string, timeZone: str
             .sort((a, b) => a.modelKey.localeCompare(b.modelKey))
   };
 }
+/** Preview recovered labels without writing local history or saving to the cloud. */
+export function previewModelRecovery(record: UsageDay, details: HistoryDayPayload): UsageDay | null {
+  if (!record.models?.some((model) => model.modelKey === "other") || !record.totals) return null;
+  try {
+    const row = fromUsageDay(record, 0, details);
+    const candidate = toUsageDay({ ...row, payload: { ...row.payload, models: details.models } }, "model-recovery", record.timeZone);
+    if (!candidate.models || !candidate.totals) return null;
+    const totals = record.totals;
+    const localTotals = storedTotals(details.totals);
+    if ((Object.keys(totals) as (keyof StoredTotals)[]).some((key) => totals[key] !== localTotals[key])) return null;
+    // Preserve named models and reject partial or stale local breakdowns.
+    for (const model of record.models.filter((entry) => entry.modelKey !== "other")) {
+      const match = candidate.models.find((entry) => entry.modelKey === model.modelKey);
+      if (!match || (Object.keys(model.totals) as (keyof StoredTotals)[]).some((key) => model.totals[key] !== match.totals[key])) return null;
+    }
+    const counts = ["inputTokens", "cachedInputTokens", "cacheCreationInputTokens", "outputTokens", "totalTokens", "requests", "unpricedTokens"] as const;
+    if (counts.some((key) => record.models!.reduce((sum, row) => sum + row.totals[key], 0) !== candidate.models!.reduce((sum, row) => sum + row.totals[key], 0))) return null;
+    const unknown = (models: NonNullable<UsageDay["models"]>) => models.find((model) => model.modelKey === "other")?.totals.totalTokens ?? 0;
+    if (unknown(candidate.models) >= unknown(record.models)) return null;
+    const recovered = { ...record, models: candidate.models };
+    validateUsageRecord(recovered);
+    return recovered;
+  } catch {
+    return null;
+  }
+}
+
 export function toCapacity(row: HistoryDayRecord, replica: string): CapacitySnapshot | null {
   if (!row.payload.windows.length && !row.payload.identity?.plan) return null;
   const sourceId = usageSource(replica, row.providerId, row.accountKey);
@@ -113,10 +144,10 @@ export function fromUsageDay(
       hourly: (record.hourly ?? []).map((hour) => ({
         date: record.localDay,
         hour: hour.localHour,
+        utcStart: hour.utcStart,
         ...displayTotals(hour.totals)
       })),
       models:
-        details?.models ??
         (record.models ?? []).map((model) => ({
           id: model.modelKey,
           label: model.modelKey,
@@ -151,4 +182,10 @@ function displayTotals(totals: StoredTotals | null): UsageTotals {
     ...counts,
     estimatedCostUSD: estimatedCostMicrosUSD === null ? null : estimatedCostMicrosUSD / 1_000_000
   };
+}
+
+function coverage(rows: UsageTotals[], totals: UsageTotals, status: string): "complete" | "partial" | "unknown" {
+  if (status === "unavailable") return "unknown";
+  const keys = ["inputTokens", "cachedInputTokens", "cacheCreationInputTokens", "outputTokens", "totalTokens", "requests", "unpricedTokens"] as const;
+  return keys.every(key => rows.reduce((sum, row) => sum + row[key], 0) === totals[key]) ? "complete" : rows.length ? "partial" : "unknown";
 }

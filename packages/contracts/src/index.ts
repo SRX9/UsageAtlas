@@ -1,3 +1,4 @@
+import type { UsageCollection } from "./statistics";
 export const DASHBOARD_SCHEMA_VERSION = 2 as const;
 
 export type JsonValue =
@@ -42,6 +43,7 @@ export interface UsageDailyMetric extends UsageTotals {
 }
 
 export interface UsageHourlyMetric extends UsageTotals {
+  utcStart?: string | null;
   date: string;
   hour: number;
 }
@@ -70,6 +72,8 @@ export interface UsageSessionBreakdown extends UsageBreakdown {
 export type LocalUsageStatus = "available" | "no_data" | "partial" | "unavailable";
 
 export interface LocalUsageAnalytics {
+  /** Engine-only measurements, removed before sending a dashboard snapshot. */
+  collection?: UsageCollection;
   status: LocalUsageStatus;
   source: "local_sessions" | "remote_usage";
   historyDays: number;

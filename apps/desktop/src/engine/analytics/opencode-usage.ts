@@ -68,7 +68,7 @@ export class OpenCodeUsageScanner {
     return await fileExists(this.locations.database) || await fileExists(this.locations.auth);
   }
 
-  async scan(context: { signal: AbortSignal; now: Date; historyDays?: number }): Promise<OpenCodeUsageSnapshot> {
+  async scan(context: { signal: AbortSignal; now: Date; historyDays?: number; timeZone?: string }): Promise<OpenCodeUsageSnapshot> {
     context.signal.throwIfAborted();
     if (!await fileExists(this.locations.database)) {
       throw new ProviderError(
@@ -86,7 +86,11 @@ export class OpenCodeUsageScanner {
         context.now,
         historyDays,
         1,
-        parsed.partial
+        parsed.partial,
+        "local_sessions",
+        undefined,
+        undefined,
+        context.timeZone
       ),
       windows: hasGoPlan ? buildGoWindows(parsed.records, context.now) : [],
       hasGoPlan
@@ -103,18 +107,18 @@ export class OpenCodeUsageScanner {
       if (!tables.has("message")) {
         throw new ProviderError("analytics_unavailable", "OpenCode's local database has no message history.");
       }
-      const messageRows = readBoundedTable(database, "message", this.maxRecords);
-      const partRows = tables.has("part") ? readBoundedTable(database, "part", this.maxRecords) : [];
+      const messageRows = readBoundedTable(database, "message", this.maxRecords + 1);
+      const partRows = tables.has("part") ? readBoundedTable(database, "part", this.maxRecords + 1) : [];
       const sessionRows = tables.has("session")
         ? readBoundedTable(database, "session", Math.min(this.maxRecords, 10_000))
         : [];
       signal.throwIfAborted();
-      const parsed = parseOpenCodeRows(messageRows, partRows, sessionRows, signal);
+      const parsed = parseOpenCodeRows(messageRows.slice(0, this.maxRecords), partRows.slice(0, this.maxRecords), sessionRows, signal);
       return {
         records: parsed.records,
         partial: parsed.skipped > 0
-          || messageRows.length >= this.maxRecords
-          || partRows.length >= this.maxRecords
+          || messageRows.length > this.maxRecords
+          || partRows.length > this.maxRecords
       };
     } catch (error) {
       if (error instanceof ProviderError) throw error;
@@ -183,6 +187,7 @@ function parseOpenCodeRows(
     messages.set(id, metadata);
     const record = usageRecord(metadata, root, `opencode|message|${id}`);
     if (record) messageRecords.set(id, record);
+    else if (!metadata.timestamp && (nested(root, "tokens") || nested(root, "usage") || root.cost !== undefined)) skipped += 1;
   }
 
   for (const row of partRows) {
@@ -269,11 +274,21 @@ function usageRecord(
   const calculatedTotal = inputTokens + cachedInputTokens + cacheCreationInputTokens + outputTokens;
   const totalTokens = Math.max(calculatedTotal, integer(tokens?.total));
   const cost = finite(firstValue(value.cost, nested(value, "usage")?.cost));
-  if (totalTokens === 0 && cost === null) return null;
+  if (!tokens && cost === null) return null;
   return {
     timestamp: message.timestamp,
     day: localDay(new Date(message.timestamp)),
     model: message.model,
+    reportedModel: message.model,
+    modelProvider: message.providerID,
+    reportedCostUSD: cost,
+    rawTokens: { input: tokenInteger(firstValue(tokens?.input, tokens?.input_tokens)), cacheRead: tokenInteger(firstValue(cache?.read, tokens?.cache_read, tokens?.cached_input_tokens)), cacheWrite: tokenInteger(firstValue(cache?.write, tokens?.cache_write, tokens?.cache_creation_input_tokens)), output: tokenInteger(firstValue(tokens?.output, tokens?.output_tokens)), reasoning: tokenInteger(firstValue(tokens?.reasoning, tokens?.reasoning_tokens)), total: tokenInteger(tokens?.total) },
+    measurement: tokens !== null
+      && [firstValue(tokens.input, tokens.input_tokens), firstValue(tokens.output, tokens.output_tokens)].every(value => tokenInteger(value) !== null)
+      && [firstValue(cache?.read, tokens.cache_read, tokens.cached_input_tokens), firstValue(cache?.write, tokens.cache_write, tokens.cache_creation_input_tokens), firstValue(tokens.reasoning, tokens.reasoning_tokens), tokens.total]
+        .every(value => value === undefined || tokenInteger(value) !== null)
+      && (tokens.cache === undefined || cache !== null)
+      && Number.isSafeInteger(totalTokens) && totalTokens === calculatedTotal ? "known" : "unknown",
     sessionID: message.sessionID,
     projectPath: message.projectPath,
     projectLabel: message.projectLabel,
@@ -284,6 +299,7 @@ function usageRecord(
     outputTokens,
     totalTokens,
     estimatedCostUSD: cost,
+    eventIdentity: "source",
     eventKey
   };
 }
@@ -321,12 +337,21 @@ function sessionUsageRecord(row: SqliteRow, session: SessionMetadata): UsageReco
     outputTokens,
     totalTokens,
     estimatedCostUSD: cost,
+    eventIdentity: "source",
+    granularity: "session",
+    rawTokens: { input: tokenInteger(firstValue(row.tokens_input, root.tokens_input)), cacheRead: tokenInteger(firstValue(row.tokens_cache_read, root.tokens_cache_read)), cacheWrite: tokenInteger(firstValue(row.tokens_cache_write, root.tokens_cache_write)), output: tokenInteger(firstValue(row.tokens_output, root.tokens_output)), reasoning: tokenInteger(firstValue(row.tokens_reasoning, root.tokens_reasoning)) },
+    measurement: [firstValue(row.tokens_input, root.tokens_input), firstValue(row.tokens_output, root.tokens_output)]
+      .every(value => tokenInteger(value) !== null)
+      && [firstValue(row.tokens_cache_read, root.tokens_cache_read), firstValue(row.tokens_cache_write, root.tokens_cache_write), firstValue(row.tokens_reasoning, root.tokens_reasoning)]
+        .every(value => value === undefined || tokenInteger(value) !== null)
+      && Number.isSafeInteger(totalTokens) ? "known" : "unknown",
+    reportedCostUSD: cost,
     eventKey: `opencode|session|${sessionID}`
   };
 }
 
 function buildGoWindows(records: UsageRecord[], now: Date): DashboardWindow[] {
-  const goRecords = records.filter((record) => record.serviceTier === "opencode-go" && record.estimatedCostUSD !== null);
+  const goRecords = records.filter((record) => record.serviceTier === "opencode-go" && record.estimatedCostUSD !== null && timestampMs(record.timestamp) <= now.valueOf());
   const nowMs = now.valueOf();
   const sessionStart = nowMs - FIVE_HOURS_MS;
   const weekStart = startOfUTCWeek(now).valueOf();
@@ -385,7 +410,8 @@ function timestampMs(value: string): number {
 function timestamp(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     const milliseconds = value < 10_000_000_000 ? value * 1_000 : value;
-    return new Date(milliseconds).toISOString();
+    const date = new Date(milliseconds);
+    return Number.isFinite(date.valueOf()) ? date.toISOString() : null;
   }
   if (typeof value === "bigint") return timestamp(Number(value));
   if (typeof value !== "string" || !value.trim()) return null;
@@ -435,12 +461,17 @@ function firstValue(...values: unknown[]): unknown {
   return values.find((value) => value !== undefined && value !== null);
 }
 
+function tokenInteger(value: unknown): number | null {
+  const parsed = finite(value);
+  return parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function integer(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+  return tokenInteger(value) ?? 0;
 }
 
 function finite(value: unknown): number | null {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }

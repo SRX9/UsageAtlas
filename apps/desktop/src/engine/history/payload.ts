@@ -62,14 +62,17 @@ export function hasUsageTotals(payload: HistoryDayPayload): boolean {
     || payload.hourly.some((entry) => entry.totalTokens > 0 || entry.requests > 0);
 }
 
-/** Complete scans may correct history; incomplete scans cannot replace complete coverage. */
+/** Source files can disappear; ordinary rescans must not lower saved counters. */
 export function canReplaceSealed(existing: HistoryDayPayload, incoming: HistoryDayPayload): boolean {
   if (isEmptyHistoryPayload(incoming)) return false;
   if (isEmptyHistoryPayload(existing)) return true;
-  if (incoming.status === "available") return true;
+  if (incoming.status === "available") return incoming.totals.totalTokens >= existing.totals.totalTokens
+    && incoming.totals.requests >= existing.totals.requests;
   if (existing.status !== "partial") return false;
-  return incoming.totals.totalTokens > existing.totals.totalTokens
-    || incoming.totals.requests > existing.totals.requests;
+  return incoming.totals.totalTokens >= existing.totals.totalTokens
+    && incoming.totals.requests >= existing.totals.requests
+    && (incoming.totals.totalTokens > existing.totals.totalTokens
+      || incoming.totals.requests > existing.totals.requests);
 }
 
 export function sumUsageTotals(entries: UsageTotals[]): UsageTotals {
@@ -161,7 +164,7 @@ function modelsForDay(dailyModels: UsageDailyModelMetric[], day: string): UsageB
 export function mergeHourly(entries: UsageHourlyMetric[]): UsageHourlyMetric[] {
   const groups = new Map<string, UsageHourlyMetric[]>();
   for (const entry of entries) {
-    const key = `${entry.date}T${String(entry.hour).padStart(2, "0")}`;
+    const key = `${entry.date}T${String(entry.hour).padStart(2, "0")}|${entry.utcStart ?? ""}`;
     const group = groups.get(key) ?? [];
     group.push(entry);
     groups.set(key, group);
@@ -170,7 +173,8 @@ export function mergeHourly(entries: UsageHourlyMetric[]): UsageHourlyMetric[] {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, group]) => ({
       date: key.slice(0, 10),
-      hour: Number(key.slice(11)),
+      hour: Number(key.slice(11, 13)),
+      utcStart: key.split("|")[1] || null,
       ...sumUsageTotals(group)
     }));
 }

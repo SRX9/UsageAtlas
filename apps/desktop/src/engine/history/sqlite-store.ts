@@ -1,20 +1,26 @@
+import { CollectionImporter } from "./collection-importer";
+import { USAGE_PARSER_VERSION } from "@usageatlas/contracts/statistics";
+import type { UsageProvider } from "@usageatlas/contracts/usage";
 import { randomUUID } from "node:crypto";
 import type { DashboardProvider, HistoryDayPayload, HistoryDayRecord } from "@usageatlas/contracts";
 import { openWritableSqlite, type WritableSqliteDatabase } from "../platform/sqlite";
 import { dayRange } from "./days";
 import { canReplaceSealed, emptyUsageTotals, isEmptyHistoryPayload, readHistoryDayPayload } from "./payload";
-import { stableId, usageSource, toUsageDay, toCapacity, fromUsageDay } from "./usage-payload";
+import { stableId, usageSource, toUsageDay, toCapacity, fromUsageDay, previewModelRecovery } from "./usage-payload";
 import { UsageStore, type LocalRecord } from "./usage-store";
 import type { HistoryStore } from "./types";
 
 export class SqliteHistoryStore implements HistoryStore {
   readonly usage: UsageStore;
+  readonly imports: CollectionImporter;
   private constructor(
     private readonly database: WritableSqliteDatabase,
     private readonly replica: string
   ) {
     this.usage = new UsageStore(database);
+    this.imports = new CollectionImporter(this.usage, replica);
     this.migrateHistory();
+    this.recoverModelIdentities();
     if (!this.usage.setting("reporting-timezone"))
       this.usage.setSetting("reporting-timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   }
@@ -53,6 +59,9 @@ export class SqliteHistoryStore implements HistoryStore {
       known?.record.kind === "usage_day" ? known.record.timeZone! : this.usage.setting("reporting-timezone")!;
     this.usage.setSetting(key, zone);
     return zone;
+  }
+  needsCollectionRefresh(providerId: string, accountKey: string): boolean {
+    return this.imports.needsBackfill(providerId, accountKey);
   }
   needsTimezoneRefresh(providerId: string, accountKey: string): boolean {
     const source = usageSource(this.replica, providerId, accountKey);
@@ -118,7 +127,6 @@ export class SqliteHistoryStore implements HistoryStore {
     if (existing?.sealed) return existing;
     if (
       existing &&
-      payload.status === "partial" &&
       (payload.totals.totalTokens < existing.payload.totals.totalTokens ||
         payload.totals.requests < existing.payload.totals.requests)
     )
@@ -146,12 +154,23 @@ export class SqliteHistoryStore implements HistoryStore {
       return [this.historyRow(updated, row.accountKey)!];
     });
   }
+  saveCollection(providerId: string, accountKey: string, analytics: import("@usageatlas/contracts").LocalUsageAnalytics): void {
+    const collection = analytics.collection ?? {
+      events: [], parserVersion: USAGE_PARSER_VERSION, pricingVersion: null,
+      timeZone: this.reportingTimeZone(providerId, accountKey),
+      coverageStart: analytics.coverageStart, coverageEnd: analytics.coverageEnd,
+      status: analytics.status, filesScanned: analytics.filesScanned,
+      recordsProcessed: analytics.recordsProcessed, reasonCode: analytics.error?.code ?? null
+    };
+    this.imports.enqueue(providerId as UsageProvider, accountKey, { ...analytics, collection });
+  }
   saveCapacity(
     providerId: string,
     accountKey: string,
     live: Omit<DashboardProvider, "id" | "name" | "enabled">
   ): void {
     if (live.error || !live.updatedAt) return;
+    this.usage.transaction(() => this.usage.statistics.capacity(providerId as UsageProvider, accountKey, this.replica, live));
     const payload: HistoryDayPayload = {
       payloadVersion: 1,
       accountKey,
@@ -230,8 +249,9 @@ export class SqliteHistoryStore implements HistoryStore {
     }
     return row;
   }
-  close(): void {
-    this.database.close();
+  close(): Promise<void> {
+    this.imports.close();
+    return this.database.close();
   }
   private historyRow(local: LocalRecord, accountKey?: string): HistoryDayRecord | null {
     if (local.record.kind !== "usage_day") return null;
@@ -276,6 +296,19 @@ export class SqliteHistoryStore implements HistoryStore {
     });
     this.usage.onChange?.();
     return this.historyRow(saved, accountKey)!;
+  }
+  private recoverModelIdentities(): void {
+    if (this.usage.setting("model-identities-v3") === "1") return;
+    this.usage.transaction(() => {
+      for (const row of this.database.all("SELECT owner,id FROM usage_record WHERE details IS NOT NULL AND conflict IS NULL")) {
+        const local = this.usage.get(String(row.id), String(row.owner));
+        if (local?.record.kind !== "usage_day" || !local.details) continue;
+        const details = readHistoryDayPayload(local.details);
+        const recovered = details ? previewModelRecovery(local.record, details) : null;
+        if (recovered) this.usage.put(recovered, local.details, local.owner);
+      }
+      this.usage.setSetting("model-identities-v3", "1");
+    });
   }
   private migrateHistory(): void {
     if (this.usage.setting("history-migrated") === "1") return;

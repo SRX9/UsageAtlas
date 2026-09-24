@@ -1,3 +1,4 @@
+import type { LocalImportProgress } from "../shared/desktop-api";
 import { SqliteHistoryStore } from "./history/sqlite-store";
 import { UsageSync, httpUsageCloud } from "./history/usage-sync";
 import {
@@ -7,7 +8,8 @@ import {
   type DashboardSnapshot,
   type DashboardWindow,
   type HistoryDayRecord,
-  type JsonValue
+  type JsonValue,
+  type ProviderFailure
 } from "@usageatlas/contracts";
 import {
   HISTORY_BACKFILL_DAYS,
@@ -34,6 +36,7 @@ export class EngineService {
   private readonly explicitlyConfigured = new Set<string>();
   private readonly cached = new Map<string, DashboardProvider>();
   private readonly refreshedAt = new Map<string, number>();
+  private readonly analyticsFailures = new Map<string, ProviderFailure>();
   private readonly history: HistoryStore;
   private readonly sync: UsageSync | null;
 
@@ -42,10 +45,20 @@ export class EngineService {
     private readonly now: () => Date = () => new Date(),
     history: HistoryStore = new MemoryHistoryStore(),
     private readonly emitProgress?: (progress: EngineRefreshProgress) => void,
-    private readonly historyChanged?: () => void
+    private readonly historyChanged?: () => void,
+    private readonly importChanged?: (accountId: string, progress: LocalImportProgress | null) => void
   ) {
     this.history = history;
-    this.sync = history instanceof SqliteHistoryStore ? new UsageSync(history.usage, () => { this.cached.clear(); this.historyChanged?.(); }) : null;
+    this.sync = history instanceof SqliteHistoryStore ? new UsageSync(history.usage, (reason) => {
+      this.cached.clear();
+      if (reason === "account") {
+        this.refreshedAt.clear();
+        this.analyticsFailures.clear();
+      }
+      this.historyChanged?.();
+    }, signal => history.imports.wait(history.usage.owner, signal)) : null;
+    if (history instanceof SqliteHistoryStore)
+      history.imports.onProgress = () => this.importChanged?.(history.usage.owner, history.imports.status());
     for (const adapter of adapters) {
       if (this.providers.has(adapter.id)) throw new Error(`Duplicate provider adapter: ${adapter.id}`);
       this.providers.set(adapter.id, adapter);
@@ -53,6 +66,11 @@ export class EngineService {
   }
 
   async handle(request: EngineRequest): Promise<EngineResponse> {
+    // Background writes must not spend another provider's scan timeout on disk I/O.
+    const imports = this.history instanceof SqliteHistoryStore
+      && (request.method === "snapshot.get" || request.method === "provider.refresh")
+      ? this.history.imports : null;
+    imports?.pause();
     try {
       const result = await this.dispatch(request);
       return { id: request.id, ok: true, result, error: null };
@@ -68,6 +86,8 @@ export class EngineService {
         result: null,
         error: { code: known.code, message: known.message, retryable: known.retryable }
       };
+    } finally {
+      imports?.resume();
     }
   }
 
@@ -95,16 +115,19 @@ export class EngineService {
         return { provider: providerID, enabled: request.params.enabled };
       }
       case "cloud": {
-        if (!this.sync) throw new Error("Cloud save requires local SQLite storage.");
         const { operation, accountId, token, baseURL, enabled, recordId, choice } = request.params;
+        if (operation === "configure") {
+          if (typeof accountId !== "string" || typeof token !== "string" || typeof baseURL !== "string") throw new Error("Invalid account configuration.");
+          // Memory-only history contains no cloud records; keep local collection available.
+          if (!this.sync) return null;
+          await this.sync.configure(accountId, token ? httpUsageCloud(baseURL, token) : null);
+          if (this.history instanceof SqliteHistoryStore)
+            this.importChanged?.(this.history.usage.owner, this.history.imports.status());
+          return this.sync.status() as unknown as JsonValue;
+        }
+        if (!this.sync) throw new Error("Cloud save requires local SQLite storage.");
         switch (operation) {
           case "status": break;
-          case "configure":
-            if (typeof accountId !== "string" || typeof token !== "string" || typeof baseURL !== "string") throw new Error("Invalid account configuration.");
-            await this.sync.configure(accountId, token ? httpUsageCloud(baseURL, token) : null);
-            this.cached.clear();
-            this.refreshedAt.clear();
-            break;
           case "automatic":
             if (typeof enabled !== "boolean") throw new Error("Invalid automatic save setting.");
             this.sync.setAutomatic(enabled);
@@ -121,7 +144,7 @@ export class EngineService {
       }
       case "shutdown":
         this.sync?.close();
-        this.history.close?.();
+        await this.history.close?.();
         return { shuttingDown: true };
     }
   }
@@ -192,7 +215,7 @@ export class EngineService {
         windows: capacity?.windows ?? [],
         identity: capacity?.identity ?? null,
         credits: capacity?.credits ?? null,
-        analytics: fallback.composed,
+        analytics: this.withAnalyticsFailure(adapter.id, fallback.composed),
         error: null,
         updatedAt: capacity?.updatedAt ?? null
       });
@@ -225,8 +248,16 @@ export class EngineService {
         accountKey?: string;
       };
       void _ignored;
+      if (provider.analytics?.status === "unavailable" && provider.analytics.error)
+        this.analyticsFailures.set(providerID, provider.analytics.error);
+      else this.analyticsFailures.delete(providerID);
       const previous = this.cached.get(providerID);
       const persisted = persistLiveHistory(this.history, providerID, accountKey, now, provider, reportingTimeZone);
+      if (provider.analytics) {
+        const { collection: _collection, ...displayAnalytics } = provider.analytics;
+        void _collection;
+        provider.analytics = displayAnalytics;
+      }
       this.cached.set(providerID, {
         ...provider,
         id: adapter.id,
@@ -235,7 +266,7 @@ export class EngineService {
         windows: firstWindows(provider.windows, persisted.storedToday?.payload.windows, previous?.windows),
         identity: provider.identity ?? persisted.storedToday?.payload.identity ?? previous?.identity ?? null,
         credits: provider.credits ?? persisted.storedToday?.payload.credits ?? previous?.credits ?? null,
-        analytics: persisted.composed ?? provider.analytics
+        analytics: this.withAnalyticsFailure(providerID, persisted.composed ?? provider.analytics)
       });
     } catch (error) {
       const known = error instanceof ProviderError ? error : new ProviderError(
@@ -262,6 +293,20 @@ export class EngineService {
       clearTimeout(timeout);
       this.refreshedAt.set(providerID, now.valueOf());
     }
+  }
+
+  private withAnalyticsFailure(
+    providerID: string,
+    analytics: DashboardProvider["analytics"]
+  ): DashboardProvider["analytics"] {
+    const error = this.analyticsFailures.get(providerID);
+    if (analytics?.collection) {
+      const { collection: _collection, ...display } = analytics;
+      void _collection;
+      analytics = display;
+    }
+    if (!analytics || !error) return analytics;
+    return { ...analytics, status: analytics.daily.length > 0 ? "partial" : "unavailable", error };
   }
 
   private snapshot(): DashboardSnapshot {

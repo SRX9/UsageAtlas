@@ -32,7 +32,7 @@ afterEach(async () => {
 });
 
 describe("HistoryStore", () => {
-  it("keeps sealing and collecting after sign-in with unclaimed local drafts", () => {
+  it("keeps sealing and collecting after sign-in with unclaimed local drafts", async () => {
     const store = SqliteHistoryStore.open(":memory:");
     try {
       const old = store.upsertDraft("claude", "local", "2026-08-18", payload({ totals: tokens(25) }));
@@ -46,12 +46,12 @@ describe("HistoryStore", () => {
       expect(store.usage.get(old.id)).toBeNull();
       expect(store.usage.localRecord(old.id)?.record).toMatchObject({ dayState: "complete" });
       expect(store.get("claude", "local", "2026-08-19")?.payload.totals.totalTokens).toBe(50);
-    } finally { store.close(); }
+    } finally { await store.close(); }
   });
 
   it.each([
     ["pro", "pro"], ["pro+", "pro_plus"], ["pro plus", "pro_plus"], ["ultra", "ultra"], ["custom", "other"]
-  ])("preserves the Cursor %s plan through save and restore", (membership, plan) => {
+  ])("preserves the Cursor %s plan through save and restore", async (membership, plan) => {
     const source = SqliteHistoryStore.open(":memory:");
     const restored = SqliteHistoryStore.open(":memory:");
     try {
@@ -61,10 +61,10 @@ describe("HistoryStore", () => {
       expect(saved.record).toMatchObject({ planKey: plan });
       restored.usage.merge({ record: saved.record, revision: 1 });
       expect(restored.latestCapacity("cursor")?.payload.identity?.plan).toBe(plan);
-    } finally { source.close(); restored.close(); }
+    } finally { await source.close(); await restored.close(); }
   });
 
-  it("seals drafts before today and never empty-clobbers a sealed day", () => {
+  it("seals drafts before today and never empty-clobbers a sealed day", async () => {
     const store = new MemoryHistoryStore("replica-1");
     const day = "2026-08-18";
     store.upsertDraft("cursor", "user-a", day, payload({ totals: tokens(100) }));
@@ -75,7 +75,7 @@ describe("HistoryStore", () => {
     expect(store.get("cursor", "user-a", day)?.payload.totals.totalTokens).toBe(100);
   });
 
-  it("keeps separate rows per account and reports missing days per account", () => {
+  it("keeps separate rows per account and reports missing days per account", async () => {
     const store = new MemoryHistoryStore();
     store.sealDay("cursor", "user-a", "2026-08-17", payload({ totals: tokens(40) }));
     store.sealDay("cursor", "user-a", "2026-08-18", payload({ totals: tokens(60) }));
@@ -88,7 +88,7 @@ describe("HistoryStore", () => {
     expect(historyDaysForAccount(store, "cursor", "user-a", new Date("2026-08-19T12:00:00"))).toBe(1);
   });
 
-  it("composes same-day account switch totals without losing the prior draft", () => {
+  it("composes same-day account switch totals without losing the prior draft", async () => {
     const store = new MemoryHistoryStore();
     const today = "2026-08-19";
     store.upsertDraft("cursor", "user-a", today, payload({
@@ -115,13 +115,13 @@ describe("HistoryStore", () => {
     const first = SqliteHistoryStore.open(filename);
     first.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(25) }));
     const pending = first.usage.pending()[0];
-    first.close();
+    await first.close();
     const second = SqliteHistoryStore.open(filename);
     expect(second.usage.pending()[0].localVersion).toBe(pending.localVersion);
     second.usage.acknowledge(pending, { record: pending.record, revision: 1 });
     second.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(25), capturedAt: "2026-08-19T01:00:00Z" }));
     expect(second.usage.pending()).toEqual([]);
-    second.close();
+    await second.close();
   });
 
   it("migrates usable legacy rows once, keeping local detail out of cloud records", async () => {
@@ -132,7 +132,7 @@ describe("HistoryStore", () => {
     db.exec("CREATE TABLE history_day(id TEXT, provider_id TEXT, account_key TEXT, local_day TEXT, sealed INTEGER, change_seq INTEGER, updated_at TEXT, payload TEXT)");
     db.run("INSERT INTO history_day VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ["legacy-id", "claude", "local", "2026-08-18", 1, 9, "2026-08-19T00:00:00Z", JSON.stringify(payload({ totals: tokens(25), source: "/private/path" }))]);
     db.run("INSERT INTO history_day VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ["bad", "claude", "local", "2026-08-17", 1, 1, "2026-08-19T00:00:00Z", "invalid"]);
-    db.close();
+    await db.close();
     const migrated = SqliteHistoryStore.open(filename);
     expect(migrated.getRange("claude", "2026-08-17", "2026-08-19")).toHaveLength(1);
     expect(migrated.get("claude", "local", "2026-08-18")?.payload.source).toBe("/private/path");
@@ -140,14 +140,14 @@ describe("HistoryStore", () => {
     expect(migrated.usage.pending()[0].record).toMatchObject({ timeZone: null });
     migrated.usage.selectAccount("a");
     migrated.usage.claimLocal();
-    migrated.close();
+    await migrated.close();
     const reopened = SqliteHistoryStore.open(filename);
     reopened.usage.selectAccount("b");
     expect(reopened.getRange("claude", "2026-08-17", "2026-08-19")).toEqual([]);
-    reopened.close();
+    await reopened.close();
   });
 
-  it("persists limits even when there are no local session logs", () => {
+  it("persists limits even when there are no local session logs", async () => {
     const store = SqliteHistoryStore.open(":memory:");
     try {
       persistProviderHistory({ store, providerId: "claude", accountKey: "local", now: new Date("2026-08-19T12:00:00Z"), live: {
@@ -157,10 +157,10 @@ describe("HistoryStore", () => {
       expect(store.getRange("claude", "2026-08-18", "2026-08-19")).toEqual([]);
       expect(store.latestCapacity("claude")?.payload.windows[0].usedPercent).toBe(40);
       expect(store.usage.pending()[0].record.kind).toBe("capacity_snapshot");
-    } finally { store.close(); }
+    } finally { await store.close(); }
   });
 
-  it("deduplicates provider-account history across devices and keeps device logs separate", () => {
+  it("deduplicates provider-account history across devices and keeps device logs separate", async () => {
     const a = SqliteHistoryStore.open(":memory:");
     const b = SqliteHistoryStore.open(":memory:");
     try {
@@ -171,7 +171,7 @@ describe("HistoryStore", () => {
       const first = a.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(10) }));
       const second = b.upsertDraft("claude", "local", "2026-08-19", payload({ totals: tokens(10) }));
       expect(first.id).not.toBe(second.id);
-    } finally { a.close(); b.close(); }
+    } finally { await a.close(); await b.close(); }
   });
   it("persists a stable replica id and change sequence across sqlite reopen", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-history-"));
@@ -182,13 +182,13 @@ describe("HistoryStore", () => {
     first.sealDay("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18", payload({ totals: tokens(25) }));
     const changes = first.usage.pending();
     expect(changes).toHaveLength(1);
-    first.close();
+    await first.close();
 
     const second = SqliteHistoryStore.open(databasePath);
     expect(second.replicaId()).toBe(replica);
     expect(second.get("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18")?.payload.totals.totalTokens).toBe(25);
     expect(second.usage.pending()).toHaveLength(1);
-    second.close();
+    await second.close();
   });
 
   it("lets sqlite replace a sealed partial day and refuses empty inserts", async () => {
@@ -213,7 +213,7 @@ describe("HistoryStore", () => {
 
     store.sealDay("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18", payload({ totals: tokens(0) }));
     expect(store.get("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18")?.payload.totals.totalTokens).toBe(25);
-    store.close();
+    await store.close();
   });
 });
 
@@ -238,7 +238,7 @@ describe("EngineService history integration", () => {
         expect(provider.enabled).toBe(!disabled);
         expect(provider.analytics?.totals.totalTokens ?? null).toBe(disabled ? null : 75);
       }
-    } finally { source.close(); store.close(); }
+    } finally { await source.close(); await store.close(); }
   });
 
   it.each([
@@ -263,7 +263,7 @@ describe("EngineService history integration", () => {
       expect(analytics?.today.totalTokens).toBe(75);
       expect(analytics?.daily[0].date).toBe(day);
       expect(store.usage.pending()).toEqual([]);
-    } finally { source.close(); store.close(); vi.unstubAllEnvs(); }
+    } finally { await source.close(); await store.close(); vi.unstubAllEnvs(); }
   });
 
   it("keeps restored history visible when the provider is not installed on the new device", async () => {
@@ -281,7 +281,7 @@ describe("EngineService history integration", () => {
         expect(snapshot.providers[0].enabled).toBe(true);
         expect(snapshot.providers[0].analytics?.totals.totalTokens).toBe(75);
       }
-    } finally { store.close(); }
+    } finally { await store.close(); }
   });
 
   it("serves sealed history when a later refresh fails", async () => {
@@ -358,7 +358,7 @@ describe("EngineService history integration", () => {
     expect(composed.daily.find((entry) => entry.date === "2026-08-18")?.totalTokens).toBe(120);
   });
 
-  it("seals yesterday from a draft when the clock rolls to a new local day", () => {
+  it("seals yesterday from a draft when the clock rolls to a new local day", async () => {
     const store = new MemoryHistoryStore();
     const yesterday = "2026-08-18";
     store.upsertDraft("claude", "local", yesterday, payload({
@@ -386,7 +386,7 @@ describe("EngineService history integration", () => {
     expect(store.get("claude", "local", "2026-08-19")?.sealed).toBe(false);
   });
 
-  it("keeps live project and session breakdowns when composing a 90-day snapshot", () => {
+  it("keeps live project and session breakdowns when composing a 90-day snapshot", async () => {
     const store = new MemoryHistoryStore();
     store.sealDay("claude", "local", "2026-08-18", payload({ totals: tokens(40) }));
     const live = analyticsFixture("2026-08-19", tokens(20));
@@ -427,7 +427,7 @@ describe("EngineService history integration", () => {
     expect(composed?.sessions).toEqual([expect.objectContaining({ id: "sess", totalTokens: 20 })]);
   });
 
-  it("does not seal empty Cursor coverage-start days and shrinks lookback after a past day is sealed", () => {
+  it("does not seal empty Cursor coverage-start days and shrinks lookback after a past day is sealed", async () => {
     const store = new MemoryHistoryStore();
     const today = "2026-08-19";
     const live = analyticsFixture(today, tokens(30));
@@ -461,7 +461,7 @@ describe("EngineService history integration", () => {
       .toBe(1);
   });
 
-  it("does not clobber a good today draft when analytics returns no_data", () => {
+  it("does not clobber a good today draft when analytics returns no_data", async () => {
     const store = new MemoryHistoryStore();
     const today = "2026-08-19";
     store.upsertDraft("claude", "local", today, payload({
@@ -494,7 +494,7 @@ describe("EngineService history integration", () => {
     expect(draft?.payload.windows[0]?.usedPercent).toBe(40);
   });
 
-  it("does not let an empty available scan hide a non-empty today draft", () => {
+  it("does not let an empty available scan hide a non-empty today draft", async () => {
     const store = new MemoryHistoryStore();
     const today = "2026-08-19";
     store.upsertDraft("claude", "local", today, payload({ totals: tokens(88) }));
@@ -550,7 +550,7 @@ describe("EngineService history integration", () => {
     expect(snapshot.providers[0]?.analytics?.today.totalTokens).toBe(12);
   });
 
-  it("lets a later complete scan replace a sealed partial day", () => {
+  it("preserves a sealed partial day when a later scan has fewer measurements", async () => {
     const store = new MemoryHistoryStore();
     store.sealDay("claude", "local", "2026-08-18", payload({
       status: "partial",
@@ -572,8 +572,8 @@ describe("EngineService history integration", () => {
         updatedAt: "2026-08-19T12:00:00.000Z"
       }
     });
-    expect(store.get("claude", "local", "2026-08-18")?.payload.totals.totalTokens).toBe(5);
-    expect(store.get("claude", "local", "2026-08-18")?.payload.status).toBe("available");
+    expect(store.get("claude", "local", "2026-08-18")?.payload.totals.totalTokens).toBe(10);
+    expect(store.get("claude", "local", "2026-08-18")?.payload.status).toBe("partial");
   });
 
   it("uses the newest today draft for quota meters when refresh throws", async () => {
@@ -688,7 +688,7 @@ describe("EngineService history integration", () => {
     expect(snapshot.providers[0]?.analytics?.today.totalTokens).toBe(18);
   });
 
-  it("does not double-count coverage-wide projects sealed on past days", () => {
+  it("does not double-count coverage-wide projects sealed on past days", async () => {
     const store = new MemoryHistoryStore();
     const project = {
       id: "proj",
@@ -721,20 +721,20 @@ describe("EngineService history integration", () => {
     const databasePath = path.join(directory, "history.sqlite");
     const store = SqliteHistoryStore.open(databasePath);
     store.sealDay("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18", payload({ totals: tokens(25) }));
-    store.close();
+    await store.close();
 
     const database = openWritableSqlite(databasePath);
     database.run(
       `INSERT INTO usage_record (owner, id, provider, day, payload) VALUES ('', ?, ?, ?, ?)`,
       ["corrupt-row", "claude", "2026-08-17", "{not-json"]
     );
-    database.close();
+    await database.close();
 
     const reopened = SqliteHistoryStore.open(databasePath);
     expect(reopened.get("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-17")).toBeNull();
     expect(reopened.get("claude", HISTORY_LOCAL_ACCOUNT_KEY, "2026-08-18")?.payload.totals.totalTokens).toBe(25);
     expect(reopened.getRange("claude", "2026-08-17", "2026-08-18")).toHaveLength(1);
-    reopened.close();
+    await reopened.close();
   });
 });
 

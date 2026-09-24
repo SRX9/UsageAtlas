@@ -20,6 +20,7 @@ interface BaseRecord {
 }
 export interface UsageDay extends BaseRecord {
   kind: "usage_day";
+  breakdownCoverage?: { hourly: "complete" | "partial" | "unknown"; models: "complete" | "partial" | "unknown" };
   localDay: string;
   timeZone: string | null;
   dayState: "open" | "complete";
@@ -66,7 +67,7 @@ export interface SaveResult extends CloudRecord {
 export const USAGE_BATCH_SIZE = 25;
 export const USAGE_MAX_BYTES = 512 * 1024;
 
-// Unknown and custom identifiers are grouped under "other" before leaving the device.
+// Public display catalog only. Private saved records retain tool-reported identifiers.
 export const PUBLIC_MODELS = new Set([
   "other",
   "auto",
@@ -105,7 +106,62 @@ export const PUBLIC_MODELS = new Set([
   "claude-opus-4-6",
   "composer-1",
   "composer-1.5",
-  "composer-2"
+  "composer-2",
+  // Public model IDs and tool-reported variants, reviewed September 2026.
+  // Keep exact matches: arbitrary/custom names must still remain on the device.
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
+  "codex-auto-review",
+  "claude-opus-4-8",
+  "claude-opus-5",
+  "claude-opus-5-5",
+  "claude-fable-5",
+  "gemini-2.5-flash",
+  "gemini-3.1-pro",
+  "gemini-3.5-flash",
+  "grok-4.5",
+  "grok-4.6",
+  "grok-4.7",
+  "kimi-k3",
+  "glm-5.2",
+  "composer-2.5",
+  "muse-spark-1.2-contributor-free",
+  "muse-spark-1.3-contributor-free",
+  "x-preview-f-free",
+  "big-pickle",
+  "cursor-grok-4.6-xhigh",
+  "grok-bot-cua",
+  "grok-bot-automation",
+  "claude-opus-5-low",
+  "kimi-k3-max",
+  "cursor-grok-4.6-high",
+  "grok-bot-default",
+  "cursor-grok-4.6-high-fast",
+  "cursor-grok-4.5-high",
+  "claude-opus-5-thinking-low",
+  "gpt-5.6-sol-xhigh",
+  "cursor-grok-4.5-high-fast",
+  "claude-4.5-sonnet",
+  "gpt-5.5-high",
+  "grok-4.5-xhigh",
+  "claude-fable-5-thinking-high",
+  "cursor-grok-4.5-medium",
+  "claude-opus-4-8-thinking-high",
+  "composer-2.5-fast",
+  "cursor-grok-4.6-xhigh-fast",
+  "claude-opus-5-thinking-xhigh",
+  "gpt-5.5-extra-high",
+  "glm-5.2-high",
+  "kimi-k3-high",
+  "gpt-5.6-luna-high",
+  "gpt-5.6-sol-high",
+  "gpt-5.6-sol-medium",
+  "claude-opus-5-thinking-max"
 ]);
 
 const countKeys = [
@@ -175,8 +231,8 @@ export function validateUsageRecord(value: unknown): UsageRecord {
   }
   const models = new Set<string>();
   for (const model of value.models ?? []) {
-    if (!PUBLIC_MODELS.has(model.modelKey) || models.has(model.modelKey))
-      throw new Error("Invalid or duplicate public model.");
+    if (models.has(model.modelKey))
+      throw new Error("Duplicate model.");
     models.add(model.modelKey);
   }
   for (const rows of [value.hourly, value.models]) {
@@ -185,6 +241,11 @@ export function validateUsageRecord(value: unknown): UsageRecord {
       if (rows.reduce((sum, row) => sum + row.totals[key], 0) > value.totals[key])
         throw new Error("Breakdowns exceed daily usage.");
     }
+  }
+  for (const axis of ["hourly", "models"] as const) {
+    if (value.breakdownCoverage?.[axis] !== "complete") continue;
+    if (!value[axis] || !value.totals || countKeys.some(key => value[axis]!.reduce((sum, row) => sum + row.totals[key], 0) !== value.totals![key]))
+      throw new Error("Complete breakdowns must reconcile exactly.");
   }
   return value;
 }

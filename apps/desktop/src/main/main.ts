@@ -1,6 +1,6 @@
 import { CloudAccount } from "./cloud-account";
 import type { DashboardSnapshot } from "@usageatlas/contracts";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import {
   app,
   BrowserWindow,
@@ -21,10 +21,11 @@ import {
 } from "electron";
 import squirrelStartup from "electron-squirrel-startup";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { isLimitKey } from "../shared/capacity-model";
-import { snapshotHasCachedUsage } from "../shared/cached-snapshot";
-import type { AppRoute, DesktopPreferences, RefreshProgress } from "../shared/desktop-api";
+import { DashboardSession } from "./dashboard-session";
+import type { AppRoute, DesktopPreferences } from "../shared/desktop-api";
 import { IPC, isBackgroundImagePreference } from "../shared/desktop-api";
 import { isUsageAlertPreferences } from "../shared/usage-alerts";
 import { EngineManager } from "./engine-manager";
@@ -52,6 +53,15 @@ protocol.registerSchemesAsPrivileged([
 ]);
 app.enableSandbox();
 app.setName("UsageAtlas");
+if (process.env.USAGEATLAS_SMOKE_TEST === "1") {
+  const directory = mkdtempSync(path.join(tmpdir(), "usageatlas-smoke-"));
+  app.setPath("userData", directory);
+  writeFileSync(path.join(directory, "desktop-preferences.json"), JSON.stringify({
+    launchAtLogin: false,
+    anonymousAnalytics: false,
+    providerEnabled: { codex: false, claude: false, cursor: false, opencode: false }
+  }));
+}
 if (process.platform === "win32") {
   app.setAppUserModelId(app.isPackaged
     ? "com.squirrel.UsageAtlas.UsageAtlas"
@@ -68,10 +78,10 @@ let engine: EngineManager;
 let cloudAccount: CloudAccount;
 let preferences: PreferenceStore;
 let telemetry: DesktopTelemetry;
-let liveSnapshotPublish: Promise<DashboardSnapshot> | null = null;
+let dashboard: DashboardSession;
 
 const activeUsageNotifications = new Set<Notification>();
-const usageAlertEvaluator = new UsageAlertEvaluator();
+let usageAlertEvaluator = new UsageAlertEvaluator();
 const usageAlertDeliveryLog = new UsageAlertDeliveryLog();
 const allowedExternalHosts = new Set(["usageatlas.com", "github.com"]);
 const MAX_BACKGROUND_FILE_SIZE = 25 * 1024 * 1024;
@@ -199,40 +209,6 @@ function showWindow(route: AppRoute = "day"): void {
   }
 }
 
-async function getSnapshotWithUsageAlerts(force = false): Promise<DashboardSnapshot> {
-  if (!force) {
-    const hydrated = await engine.getHydratedSnapshot();
-    if (snapshotHasCachedUsage(hydrated)) {
-      updateTrayMenu(hydrated);
-      void publishLiveSnapshot(false).then((snapshot) => {
-        mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-      }).catch(() => undefined);
-      return hydrated;
-    }
-  }
-  const snapshot = await publishLiveSnapshot(force);
-  mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-  return snapshot;
-}
-
-function publishLiveSnapshot(force: boolean): Promise<DashboardSnapshot> {
-  if (liveSnapshotPublish && !force) return liveSnapshotPublish;
-  const run = (async () => {
-    const snapshot = force ? await engine.refreshAll() : await engine.getSnapshot();
-    updateTrayMenu(snapshot);
-    const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
-    for (const alert of alerts) showUsageNotification(alert);
-    return snapshot;
-  })();
-  if (!force) {
-    liveSnapshotPublish = run.finally(() => {
-      liveSnapshotPublish = null;
-    });
-    return liveSnapshotPublish;
-  }
-  return run;
-}
-
 function showUsageNotification(alert: TriggeredUsageAlert): void {
   if (!Notification.isSupported()) return;
   if (!usageAlertDeliveryLog.allow(alert)) return;
@@ -260,9 +236,8 @@ function scheduleBackgroundUsageCheck(delayMs = 180_000): void {
 async function runBackgroundUsageCheck(): Promise<void> {
   let nextDelayMs = 60_000;
   try {
-    const snapshot = await getSnapshotWithUsageAlerts();
-    mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-    nextDelayMs = Math.max(30, Math.min(snapshot.staleAfterSeconds, 300)) * 1_000;
+    const state = await dashboard.get();
+    nextDelayMs = Math.max(30, Math.min(state.snapshot?.staleAfterSeconds ?? 180, 300)) * 1_000;
   } catch {
     // The next scheduled check retries without surfacing provider details in logs.
   } finally {
@@ -315,9 +290,7 @@ function updateTrayMenu(snapshot: DashboardSnapshot | null = lastTraySnapshot): 
     {
       label: "Refresh usage",
       click: () => {
-        void getSnapshotWithUsageAlerts(true).then((snapshot) => {
-          mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-        });
+        void dashboard.refresh(true);
       }
     },
     { type: "separator" },
@@ -347,11 +320,11 @@ function registerIPC(): void {
   });
   ipcMain.handle(IPC.snapshot, (event) => {
     assertTrustedSender(event);
-    return getSnapshotWithUsageAlerts();
+    return dashboard.get();
   });
   ipcMain.handle(IPC.refreshAll, (event) => {
     assertTrustedSender(event);
-    return getSnapshotWithUsageAlerts(true);
+    return dashboard.refresh(true);
   });
   ipcMain.handle(IPC.setProviderEnabled, async (event, providerID: unknown, enabled: unknown) => {
     assertTrustedSender(event);
@@ -361,11 +334,7 @@ function registerIPC(): void {
     if (typeof enabled !== "boolean") throw new Error("Invalid provider state");
     const current = preferences.get().providerEnabled;
     preferences.update({ providerEnabled: { ...current, [providerID]: enabled } });
-    const snapshot = await engine.setProviderEnabled(providerID, enabled);
-    updateTrayMenu(snapshot);
-    const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
-    for (const alert of alerts) showUsageNotification(alert);
-    return snapshot;
+    return dashboard.setProviderEnabled(providerID, enabled);
   });
   ipcMain.handle(IPC.getPreferences, (event) => {
     assertTrustedSender(event);
@@ -542,33 +511,27 @@ if (squirrelStartup) {
     )
   );
   engine.onStatus((status) => mainWindow?.webContents.send(IPC.engineStatus, status));
-  engine.onProgress((progress) => {
-    const payload: RefreshProgress = {
-      completed: progress.completed,
-      total: progress.total,
-      providerID: progress.providerID,
-      providerName: progress.providerName,
-      status: progress.status
-    };
-    mainWindow?.webContents.send(IPC.refreshProgress, payload);
+  dashboard = new DashboardSession(engine, state => {
+    if (isQuitting) return;
+    lastTraySnapshot = state.snapshot;
+    if (!state.snapshot) usageAlertEvaluator = new UsageAlertEvaluator();
+    updateTrayMenu(state.snapshot);
+    mainWindow?.webContents.send(IPC.snapshotUpdated, state);
+  }, snapshot => {
+    const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
+    for (const alert of alerts) showUsageNotification(alert);
   });
-  cloudAccount = new CloudAccount(engine, () => {
-    void engine.getHydratedSnapshot().then(snapshot => {
-      updateTrayMenu(snapshot);
-      mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-    }).catch(() => undefined);
-  });
-  engine.onHistoryChanged(() => {
-    void engine.getHydratedSnapshot().then(snapshot => {
-      updateTrayMenu(snapshot);
-      mainWindow?.webContents.send(IPC.snapshotUpdated, snapshot);
-    }).catch(() => undefined);
-  });
+  engine.onProgress(progress => dashboard.progress(progress));
+  engine.onImportProgress(message => dashboard.importProgress(message.accountId, message.progress));
+  cloudAccount = new CloudAccount(engine, (accountId, configure, reconnect) =>
+    dashboard.configure(accountId, configure, reconnect));
+  engine.onHistoryChanged(() => dashboard.historyChanged());
   await cloudAccount.initialize().catch(() => undefined);
   engine.onStatus(status => {
     if (status === "ready") void cloudAccount.reconnect().catch(() => undefined);
   });
   await engine.applyProviderPreferences(preferences.get().providerEnabled);
+  dashboard.activate();
   registerIPC();
   createTray();
   mainWindow = createWindow();
@@ -596,6 +559,7 @@ app.on("before-quit", () => {
   if (usageCheckTimer) clearTimeout(usageCheckTimer);
   usageCheckTimer = null;
   cloudAccount?.close();
+  dashboard?.close();
   void engine?.shutdown();
   void telemetry?.shutdown();
 });
@@ -608,6 +572,17 @@ async function runPackagedSmokeTest(window: BrowserWindow): Promise<void> {
   try {
     if (!app.isPackaged) throw new Error("Packaged smoke mode requires a packaged application");
     await waitForRenderer(window);
+    const rendererReady = await window.webContents.executeJavaScript(`(async () => {
+      if (!window.usageAtlas) return false;
+      for (let attempt = 0; attempt < 100 && !document.querySelector("#root")?.childElementCount; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (!document.querySelector("#root")?.childElementCount) return false;
+      const state = await window.usageAtlas.getSnapshot();
+      const preferences = await window.usageAtlas.getPreferences();
+      return Number.isInteger(state.revision) && preferences.anonymousAnalytics === false;
+    })()`);
+    if (!rendererReady) throw new Error("Renderer or preload API did not initialize");
     await engine.getSnapshot();
     await engine.shutdown();
     tray?.destroy();

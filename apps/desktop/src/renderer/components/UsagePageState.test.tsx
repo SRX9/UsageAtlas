@@ -1,8 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { refreshStatusLabel, UsageLoading, UsageRefreshStatus } from "./UsagePageState";
+import { refreshStatusLabel, UsageLoading, UsageRefreshStatus, UsageStorageStatus } from "./UsagePageState";
 
 describe("usage loading", () => {
+  it("shows committed local records and stops the progress indicator on failure", () => {
+    const html = renderToStaticMarkup(<UsageStorageStatus progress={{ completed: 250, total: 701, error: null }} />);
+    expect(html).toContain("Saving local history");
+    expect(html).toContain("250 of 701 records");
+    const failed = renderToStaticMarkup(<UsageStorageStatus progress={{ completed: 250, total: 701, error: "Refresh usage to retry." }} />);
+    expect(failed).toContain("Refresh usage to retry.");
+    expect(failed).not.toContain("progress-circle");
+  });
+
   it("names the tool currently being updated", () => {
     expect(refreshStatusLabel({
       completed: 0,
@@ -20,7 +29,7 @@ describe("usage loading", () => {
       providerID: "claude",
       providerName: "Claude",
       status: "completed"
-    }, "ready")).toBe("Updating today’s usage");
+    }, "ready")).toBe("Updating usage");
   });
 
   it("renders a ring with a progress label instead of silent placeholders", () => {

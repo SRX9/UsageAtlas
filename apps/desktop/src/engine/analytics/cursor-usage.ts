@@ -53,7 +53,7 @@ export async function fetchCursorUsageHistory(
   context.signal.throwIfAborted();
   const historyDays = clampInteger(options.historyDays ?? DEFAULT_HISTORY_DAYS, 1, 366);
   const maxEvents = clampInteger(options.maxEvents ?? DEFAULT_MAX_EVENTS, 1, 200_000);
-  const pageSize = clampInteger(options.pageSize ?? DEFAULT_PAGE_SIZE, 1, 1_000);
+  const pageSize = Math.min(maxEvents, clampInteger(options.pageSize ?? DEFAULT_PAGE_SIZE, 1, 1_000));
   const start = new Date(context.now);
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - (historyDays - 1));
@@ -82,7 +82,8 @@ export async function fetchCursorUsageHistory(
     return parseCursorUsageEventsPage(payload, page);
   };
 
-  const maximumPages = Math.max(1, Math.ceil(maxEvents / pageSize));
+  // A terminal probe distinguishes an exact limit from a genuinely truncated result.
+  const maximumPages = Math.max(1, Math.ceil(maxEvents / pageSize)) + 1;
   const pages: CursorUsagePage[] = [];
   let expectedTotal: number | null = null;
   let completed = false;
@@ -107,6 +108,7 @@ export async function fetchCursorUsageHistory(
     throw incompleteCursorHistory(expectedTotal, pages.reduce((total, page) => total + page.rowCount, 0));
   }
   const records = reconcileCursorPages(pages, expectedTotal);
+  if (records.length > maxEvents) throw incompleteCursorHistory(expectedTotal, maxEvents);
   const analytics = buildAnalytics(
     records,
     context.now,
@@ -114,7 +116,7 @@ export async function fetchCursorUsageHistory(
     pages.length,
     false,
     "remote_usage",
-    "Cursor dashboard usage history could not be loaded completely.",
+    "Some Cursor usage events had missing or invalid token counts. Totals include only complete entries.",
     { start: shiftLocalDay(localCalendarDay(context.now, options.timeZone), -(historyDays - 1)), end: localCalendarDay(context.now, options.timeZone) },
     options.timeZone
   );
@@ -124,7 +126,11 @@ export async function fetchCursorUsageHistory(
 export function parseCursorUsageEventsPage(value: unknown, page: number): CursorUsagePage {
   const root = record(value);
   if (!root) throw invalidCursorHistory();
-  const rows = array(root.usageEventsDisplay) ?? array(root.usageEvents);
+  const keys = Object.keys(root);
+  const count = nonNegativeInteger(root.totalUsageEventsCount);
+  if (root.totalUsageEventsCount !== undefined && count === null) throw invalidCursorHistory();
+  const emptyPage = keys.length === 0 || (keys.length === 1 && keys[0] === "totalUsageEventsCount" && count !== null);
+  const rows = array(root.usageEventsDisplay) ?? array(root.usageEvents) ?? (emptyPage ? [] : null);
   if (!rows) throw invalidCursorHistory();
   const records: UsageRecord[] = [];
   let skipped = 0;
@@ -139,7 +145,7 @@ export function parseCursorUsageEventsPage(value: unknown, page: number): Cursor
     records,
     rowCount: rows.length,
     skipped,
-    totalCount: nonNegativeInteger(root.totalUsageEventsCount),
+    totalCount: keys.length === 0 ? 0 : count,
     totalPages: nonNegativeInteger(pagination?.numPages)
   };
 }
@@ -155,12 +161,21 @@ function parseCursorUsageEvent(value: unknown): UsageRecord | null {
   const cacheCreationInputTokens = tokenCount(tokenUsage?.cacheWriteTokens ?? tokenUsage?.cache_write_tokens);
   const outputTokens = tokenCount(tokenUsage?.outputTokens ?? tokenUsage?.output_tokens);
   const totalTokens = inputTokens + cachedInputTokens + cacheCreationInputTokens + outputTokens;
+  const complete = tokenUsage !== null && [tokenUsage.inputTokens ?? tokenUsage.input_tokens, tokenUsage.outputTokens ?? tokenUsage.output_tokens]
+    .every(value => nonNegativeInteger(value) !== null)
+    && [tokenUsage?.cacheReadTokens ?? tokenUsage?.cache_read_tokens, tokenUsage?.cacheWriteTokens ?? tokenUsage?.cache_write_tokens]
+      .every(value => value === undefined || nonNegativeInteger(value) !== null)
+    && Number.isSafeInteger(totalTokens);
   const day = localDay(new Date(timestamp));
   const model = firstText(root.model, root.modelName) ?? "unknown";
   const kind = firstText(root.kind) ?? "unknown";
   const estimatedCostUSD = cursorEventCost(root, tokenUsage);
   return {
     timestamp,
+    measurement: complete ? "known" : "unknown",
+    reportedModel: model,
+    reportedCostUSD: estimatedCostUSD,
+    rawTokens: { input: nonNegativeInteger(tokenUsage?.inputTokens ?? tokenUsage?.input_tokens), cacheRead: nonNegativeInteger(tokenUsage?.cacheReadTokens ?? tokenUsage?.cache_read_tokens), cacheWrite: nonNegativeInteger(tokenUsage?.cacheWriteTokens ?? tokenUsage?.cache_write_tokens), output: nonNegativeInteger(tokenUsage?.outputTokens ?? tokenUsage?.output_tokens) },
     day,
     model,
     sessionID: `cursor-${day}`,
@@ -173,7 +188,8 @@ function parseCursorUsageEvent(value: unknown): UsageRecord | null {
     outputTokens,
     totalTokens,
     estimatedCostUSD,
-    eventKey: [
+    eventIdentity: firstText(root.id, root.requestId, root.eventId) ? "source" : "fingerprint",
+    eventKey: firstText(root.id, root.requestId, root.eventId) ?? [
       "cursor",
       timestamp,
       model,
@@ -208,9 +224,9 @@ function cursorEventCost(
 function reconcileCursorPages(pages: CursorUsagePage[], expectedTotal: number | null): UsageRecord[] {
   const ordered = [...pages].sort((left, right) => left.page - right.page);
   const rawRecords = ordered.flatMap((page) => page.records);
-  if (expectedTotal === null) return rawRecords;
+  if (expectedTotal === null) return identifyRepeatedEvents(rawRecords);
   if (rawRecords.length < expectedTotal) throw incompleteCursorHistory(expectedTotal, rawRecords.length);
-  if (rawRecords.length === expectedTotal) return rawRecords;
+  if (rawRecords.length === expectedTotal) return identifyRepeatedEvents(rawRecords);
 
   let removalsRemaining = rawRecords.length - expectedTotal;
   const reconciled = [...(ordered[0]?.records ?? [])];
@@ -224,7 +240,7 @@ function reconcileCursorPages(pages: CursorUsagePage[], expectedTotal: number | 
   if (removalsRemaining > 0 || reconciled.length !== expectedTotal) {
     throw incompleteCursorHistory(expectedTotal, rawRecords.length);
   }
-  return reconciled;
+  return identifyRepeatedEvents(reconciled);
 }
 
 function boundaryOverlap(previous: UsageRecord[], current: UsageRecord[]): number {
@@ -286,16 +302,17 @@ function firstText(...values: unknown[]): string | null {
 }
 
 function tokenCount(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+  return nonNegativeInteger(value) ?? 0;
 }
 
 function nonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function finiteNumber(value: unknown): number | null {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
@@ -338,4 +355,14 @@ function incompleteCursorHistory(expected: number | null, received: number): Pro
     `Cursor usage history was incomplete: expected ${expectation}, received ${received}.`,
     true
   );
+}
+
+// Identical events may both be legitimate. Preserve multiplicity after reconciling page boundaries.
+function identifyRepeatedEvents(records: UsageRecord[]): UsageRecord[] {
+  const counts = new Map<string, number>();
+  return records.map(record => {
+    const ordinal = (counts.get(record.eventKey) ?? 0) + 1;
+    counts.set(record.eventKey, ordinal);
+    return { ...record, eventKey: `${record.eventKey}|${ordinal}` };
+  });
 }

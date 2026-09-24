@@ -1,14 +1,16 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import { useCallback, useEffect, useState } from "react";
-import { UsageEmpty, UsageFailure, UsageLoading, UsageRefreshStatus } from "./components/UsagePageState";
+import { UsageEmpty, UsageFailure, UsageLoading, UsageRefreshStatus, UsageStorageStatus } from "./components/UsagePageState";
 import type {
   AppRoute,
+  DashboardState,
   DesktopPreferences,
   EngineDiagnostics,
-  EngineStatus,
-  RefreshProgress
+  EngineStatus
 } from "../shared/desktop-api";
 import { applyWallpaper } from "./wallpapers";
+import { snapshotHasCachedUsage } from "../shared/cached-snapshot";
+import { dashboardFailure, dashboardIsLoading, initialDashboardState, latestDashboardState } from "./dashboard-state";
 import { AppShell } from "./components/AppShell";
 import { DayDashboard } from "./components/DayDashboard";
 import type { HealthNotice } from "./components/Diagnostics";
@@ -25,15 +27,17 @@ import { providerConnection, reconnectSentence } from "./provider-connection";
 
 export function App(): React.JSX.Element {
   const [route, setRoute] = useState<AppRoute>(() => routeFromHash(location.hash));
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [dashboard, setDashboard] = useState(initialDashboardState);
+  const { snapshot, refreshing, progress: refreshProgress } = dashboard;
+  const updateDashboard = useCallback((next: DashboardState) => {
+    setDashboard(current => latestDashboardState(current, next));
+  }, []);
   const [preferences, setPreferences] = useState<DesktopPreferences | null>(null);
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState<string | null>(null);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<EngineDiagnostics | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>("starting");
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshProgress, setRefreshProgress] = useState<RefreshProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
@@ -65,26 +69,19 @@ export function App(): React.JSX.Element {
     let active = true;
     const removeSnapshot = window.usageAtlas.onSnapshot((next) => {
       if (!active) return;
-      setSnapshot(next);
+      updateDashboard(next);
       setError(null);
-      setRefreshing(false);
-      setRefreshProgress(null);
-    });
-    const removeProgress = window.usageAtlas.onRefreshProgress((progress) => {
-      if (!active) return;
-      setRefreshProgress(progress);
-      setRefreshing(true);
     });
     const bootstrap = async (): Promise<void> => {
       try {
-        const [nextSnapshot, nextPreferences, nextBackgroundUrl, nextDiagnostics] = await Promise.all([
+        const [nextDashboard, nextPreferences, nextBackgroundUrl, nextDiagnostics] = await Promise.all([
           window.usageAtlas.getSnapshot(),
           window.usageAtlas.getPreferences(),
           window.usageAtlas.getCustomBackground(),
           window.usageAtlas.getDiagnostics()
         ]);
         if (!active) return;
-        setSnapshot(nextSnapshot);
+        updateDashboard(nextDashboard);
         setPreferences(nextPreferences);
         setCustomBackgroundUrl(nextBackgroundUrl);
         setDiagnostics(nextDiagnostics);
@@ -101,9 +98,8 @@ export function App(): React.JSX.Element {
     return () => {
       active = false;
       removeSnapshot();
-      removeProgress();
     };
-  }, []);
+  }, [updateDashboard]);
 
   useEffect(() => {
     applyWallpaper(preferences?.backgroundImage, customBackgroundUrl);
@@ -122,16 +118,13 @@ export function App(): React.JSX.Element {
   }, [navigate]);
 
   async function refreshAll(): Promise<void> {
-    setRefreshing(true);
     try {
-      setSnapshot(await window.usageAtlas.refreshAll());
+      updateDashboard(await window.usageAtlas.refreshAll());
       setError(null);
-      setRefreshProgress(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The local engine did not respond.");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }
 
@@ -162,7 +155,7 @@ export function App(): React.JSX.Element {
   async function setProviderEnabled(providerID: string, enabled: boolean): Promise<void> {
     setProviderSaving(providerID);
     try {
-      setSnapshot(await window.usageAtlas.setProviderEnabled(providerID, enabled));
+      updateDashboard(await window.usageAtlas.setProviderEnabled(providerID, enabled));
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The provider setting could not be saved.");
@@ -171,6 +164,8 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const usageError = error ?? dashboardFailure(dashboard);
+  const usageLoading = loading || (!usageError && dashboardIsLoading(dashboard));
   const today = todayDay();
   const usageRoute = route === "day" || route === "trends" || route === "insights" || route === "limits";
   const providerAnalyticsIssue = snapshot ? analyticsIssue(snapshot, providerScope) : null;
@@ -178,7 +173,7 @@ export function App(): React.JSX.Element {
   // collected here for Engine health, with the rail dot as the only nudge. Dismissal is
   // keyed on the wording, so a different problem always breaks through.
   const notices: HealthNotice[] = [
-    error ? { message: error, detail: null, tone: "error" as const } : null,
+    usageError ? { message: usageError, detail: null, tone: "error" as const } : null,
     ...signInNotices(snapshot),
     providerAnalyticsIssue,
     snapshot && isSnapshotStale(snapshot)
@@ -204,8 +199,9 @@ export function App(): React.JSX.Element {
 
   function renderUsageRoute(): React.JSX.Element | null {
     if (!usageRoute) return null;
-    if (loading) return <UsageLoading engineStatus={engineStatus} progress={refreshProgress} />;
-    if (error && !snapshot) return <UsageFailure error={error} onRetry={refreshAll} />;
+    if (usageLoading) return <UsageLoading engineStatus={engineStatus} progress={refreshProgress} />;
+    if (usageError && (!snapshot || !snapshotHasCachedUsage(snapshot)))
+      return <UsageFailure error={usageError} onRetry={refreshAll} />;
     if (!snapshot || enabledProviders(snapshot).length === 0) {
       return <UsageEmpty onOpenSettings={() => navigate("settings")} />;
     }
@@ -273,9 +269,10 @@ export function App(): React.JSX.Element {
 
   return (
     <AppShell engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate} route={route}>
-      {!loading && refreshing ? (
+      {!usageLoading && refreshing && !usageError ? (
         <UsageRefreshStatus engineStatus={engineStatus} progress={refreshProgress} />
       ) : null}
+      {dashboard.localImport && <UsageStorageStatus progress={dashboard.localImport} />}
       {renderUsageRoute()}
       {route === "alerts" && (
         <UsageAlertsPage
