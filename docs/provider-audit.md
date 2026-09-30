@@ -165,3 +165,9 @@ The tool sandbox blocked network downloads and Electron's Windows encryption/GPU
 Local evidence is under `tmp/release-readiness-*`. The current installer is `apps/desktop/out/make/squirrel.windows/x64/UsageAtlas-0.2.13 Setup.exe`; the ZIP is `apps/desktop/out/make/zip/win32/x64/UsageAtlas-win32-x64-0.2.13.zip`. An older `0.2.11` ZIP in that output directory is excluded from this run's checksum manifest.
 
 Before publishing, deploy the updated cloud contracts. Their production deployment has not been verified. macOS and Linux builds, signing/notarization and native smoke tests still need the release CI runners. Live authenticated comparisons for the new providers and an installed-app upgrade from the previous published version remain unverified. The packaged startup test does not establish those results.
+
+### CI dependency follow-up, 30 September 2026
+
+The first desktop CI run passed the code checks on Windows, macOS and Linux, but its Linux dependency audit reported additional advisories. Updated Electron to `43.5.0`, `brace-expansion` to `5.0.11`, and the two locked `undici` branches to `8.11.2` and `7.29.1`. The Electron update includes the [sandboxed preload cache fix](https://github.com/advisories/GHSA-qmv3-fv6v-rmhq). Existing audit exclusions are unchanged.
+
+The corrected dependency set passed the release audit, a fresh full check with 461 desktop and six tooling tests, Windows installer creation, packaged startup, and the 198-token Antigravity worker smoke test under Electron `43.5.0`. The release workflow has advanced the app version to `0.2.14`. The requested rollout order is desktop CI first, then the cloud push and its deployment checks.
