@@ -1,4 +1,5 @@
 import type { DashboardProvider, ProviderFailure } from "@usageatlas/contracts";
+import { isQuotaProvider } from "../shared/quota-providers";
 
 /**
  * How a tool's sign-in stands right now, separate from the local history it reported.
@@ -58,6 +59,18 @@ const RECONNECT: Record<string, ReconnectSteps> = {
   opencode: {
     signIn: { action: RUN_IN_TERMINAL, command: "opencode auth login" },
     setUp: { action: "Use OpenCode once on this computer, then reload.", command: null }
+  },
+  antigravity: {
+    signIn: { action: "Use Antigravity on this computer, then reload.", command: null },
+    setUp: { action: "Run a session with the Antigravity CLI on this computer, then reload.", command: null }
+  },
+  pi: {
+    signIn: { action: "Use Pi or OMP on this computer, then reload.", command: null },
+    setUp: { action: "Run a session with Pi or OMP on this computer, then reload.", command: null }
+  },
+  muse: {
+    signIn: { action: "Use Muse Code on this computer, then reload.", command: null },
+    setUp: { action: "Run a session with Muse Code on this computer, then reload.", command: null }
   }
 };
 
@@ -70,7 +83,8 @@ const FALLBACK_RECONNECT: ReconnectSteps = {
 const SIGN_IN_CODES = new Set(["auth_required", "credentials_invalid"]);
 
 export function providerConnection(provider: DashboardProvider): ProviderConnection {
-  const steps = RECONNECT[provider.id] ?? FALLBACK_RECONNECT;
+  const quotaStep = { action: "Open Connect below in Settings → Sources to add or update this credential.", command: null };
+  const steps = isQuotaProvider(provider.id) ? { signIn: quotaStep, setUp: quotaStep } : RECONNECT[provider.id] ?? FALLBACK_RECONNECT;
   if (!provider.enabled) {
     return {
       state: "disabled",
@@ -149,6 +163,7 @@ function credentialFailure(failure: ProviderFailure | null): ProviderFailure | n
 }
 
 function connectedSummary(provider: DashboardProvider): string {
+  if (provider.source === "provider_quota") return "Reading current allowances and balances. Token and request history are unavailable.";
   if (provider.source === "cursor_app") {
     return provider.analytics
       ? "Connected through Cursor with detailed dashboard history."
@@ -156,6 +171,7 @@ function connectedSummary(provider: DashboardProvider): string {
   }
   if (provider.source === "opencode_local_estimate") return "OpenCode Go with local quota estimates.";
   if (provider.id === "opencode" && provider.analytics) return "Reading local OpenCode activity.";
+  if (["antigravity", "pi", "muse"].includes(provider.id)) return `Reading local ${provider.name} activity. Subscription limits are not collected.`;
   const plan = provider.identity?.plan;
   return plan ? `Signed in · ${plan}` : "Signed in and reporting.";
 }

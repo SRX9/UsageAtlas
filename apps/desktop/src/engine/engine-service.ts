@@ -26,6 +26,7 @@ import {
 import type { EngineRefreshProgress, EngineRequest, EngineResponse } from "./protocol";
 import { ProviderError, type ProviderAdapter, type ProviderRefreshResult } from "./provider";
 import { DESKTOP_VERSION } from "../shared/version";
+import { validateProviderCredential } from "../shared/quota-providers";
 
 const STALE_AFTER_SECONDS = 180;
 const PROVIDER_REFRESH_TIMEOUT_MS = 60_000;
@@ -35,6 +36,7 @@ export class EngineService {
   private readonly enabled = new Map<string, boolean>();
   private readonly explicitlyConfigured = new Set<string>();
   private readonly cached = new Map<string, DashboardProvider>();
+  private readonly capacityAccounts = new Map<string, string | null>();
   private readonly refreshedAt = new Map<string, number>();
   private readonly analyticsFailures = new Map<string, ProviderFailure>();
   private readonly history: HistoryStore;
@@ -94,7 +96,7 @@ export class EngineService {
   private async dispatch(request: EngineRequest): Promise<JsonValue> {
     switch (request.method) {
       case "snapshot.get":
-        this.hydrateFromHistory();
+        await this.hydrateFromHistory();
         if (request.params.hydrateOnly === true) {
           return this.snapshot() as unknown as JsonValue;
         }
@@ -107,6 +109,19 @@ export class EngineService {
       }
       case "config.update": {
         const providerID = this.providerID(request.params.provider);
+        if (Object.hasOwn(request.params, "credential")) {
+          const adapter = this.providers.get(providerID)!;
+          if (!adapter.configureCredential) throw new ProviderError("invalid_params", "This provider uses its own local sign-in.");
+          if (request.params.credentialUnavailable !== undefined && typeof request.params.credentialUnavailable !== "boolean")
+            throw new ProviderError("invalid_params", "credentialUnavailable must be a boolean.");
+          adapter.configureCredential(validateProviderCredential(providerID, request.params.credential), request.params.credentialUnavailable === true);
+          this.capacityAccounts.delete(providerID);
+          this.cached.set(providerID, { id: adapter.id, name: adapter.name, enabled: this.enabled.get(providerID) ?? true,
+            source: "provider_quota", windows: [], quotaMetrics: [], identity: null, credits: null, analytics: null,
+            error: { code: "provider_not_refreshed", message: "Connection changed. Check this source again.", retryable: true }, updatedAt: null });
+          this.refreshedAt.delete(providerID);
+          return { provider: providerID, configured: request.params.credential !== null };
+        }
         if (typeof request.params.enabled !== "boolean") {
           throw new ProviderError("invalid_params", "enabled must be a boolean.");
         }
@@ -197,13 +212,29 @@ export class EngineService {
     }));
   }
 
-  private hydrateFromHistory(): void {
+  private async selectCapacityAccount(adapter: ProviderAdapter): Promise<string | null | undefined> {
+    if (!adapter.capacityAccountKey) return undefined;
+    let account: string | null = null;
+    try { account = await adapter.capacityAccountKey(); return account; }
+    finally {
+      if (this.capacityAccounts.has(adapter.id) && this.capacityAccounts.get(adapter.id) !== account) {
+        this.cached.delete(adapter.id);
+        this.refreshedAt.delete(adapter.id);
+      }
+      this.capacityAccounts.set(adapter.id, account);
+    }
+  }
+
+  private async hydrateFromHistory(): Promise<void> {
     const now = this.now();
     for (const adapter of this.providers.values()) {
+      let capacityAccount: string | null | undefined;
+      try { capacityAccount = await this.selectCapacityAccount(adapter); }
+      catch { await this.refreshProvider(adapter.id); continue; }
       if (this.cached.has(adapter.id)) continue;
       const enabled = this.enabled.get(adapter.id) ?? true;
       if (!enabled && this.explicitlyConfigured.has(adapter.id)) continue;
-      const fallback = fallbackFromHistory(this.history, adapter.id, now, HISTORY_LOCAL_ACCOUNT_KEY);
+      const fallback = fallbackFromHistory(this.history, adapter.id, now, HISTORY_LOCAL_ACCOUNT_KEY, capacityAccount);
       if (!fallback.composed && !fallback.today && !fallback.capacity) continue;
       this.enabled.set(adapter.id, true);
       const capacity = firstCapacity(undefined, fallback.today, fallback.capacity);
@@ -215,6 +246,7 @@ export class EngineService {
         windows: capacity?.windows ?? [],
         identity: capacity?.identity ?? null,
         credits: capacity?.credits ?? null,
+        ...(capacity?.quotaMetrics ? { quotaMetrics: capacity.quotaMetrics } : {}),
         analytics: this.withAnalyticsFailure(adapter.id, fallback.composed),
         error: null,
         updatedAt: capacity?.updatedAt ?? null
@@ -229,6 +261,7 @@ export class EngineService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROVIDER_REFRESH_TIMEOUT_MS);
     const defaultAccountKey = HISTORY_LOCAL_ACCOUNT_KEY;
+    let capacityAccount: string | null | undefined = adapter.capacityAccountKey ? null : undefined;
     let reportingTimeZone = this.history.reportingTimeZone?.(providerID, defaultAccountKey);
     const lookbackDays = (accountKey: string): number => safeHistory(
       () => historyDaysForAccount(this.history, providerID, resolveAccountKey(accountKey), now),
@@ -236,6 +269,7 @@ export class EngineService {
       "lookback"
     );
     try {
+      capacityAccount = await this.selectCapacityAccount(adapter);
       const refreshed = await adapter.refresh({
         signal: controller.signal,
         now,
@@ -244,6 +278,7 @@ export class EngineService {
         reportingTimeZoneForAccount: account => { reportingTimeZone = this.history.reportingTimeZone?.(providerID, account); return reportingTimeZone; }
       });
       const accountKey = resolveAccountKey(refreshed.accountKey);
+      if (adapter.capacityAccountKey) this.capacityAccounts.set(providerID, accountKey);
       const { accountKey: _ignored, ...provider } = refreshed as ProviderRefreshResult & {
         accountKey?: string;
       };
@@ -263,9 +298,9 @@ export class EngineService {
         id: adapter.id,
         name: adapter.name,
         enabled: this.enabled.get(providerID) ?? true,
-        windows: firstWindows(provider.windows, persisted.storedToday?.payload.windows, previous?.windows),
-        identity: provider.identity ?? persisted.storedToday?.payload.identity ?? previous?.identity ?? null,
-        credits: provider.credits ?? persisted.storedToday?.payload.credits ?? previous?.credits ?? null,
+        windows: provider.source === "provider_quota" ? provider.windows : firstWindows(provider.windows, persisted.storedToday?.payload.windows, previous?.windows),
+        identity: provider.source === "provider_quota" ? provider.identity : provider.identity ?? persisted.storedToday?.payload.identity ?? previous?.identity ?? null,
+        credits: provider.source === "provider_quota" ? provider.credits : provider.credits ?? persisted.storedToday?.payload.credits ?? previous?.credits ?? null,
         analytics: this.withAnalyticsFailure(providerID, persisted.composed ?? provider.analytics)
       });
     } catch (error) {
@@ -275,7 +310,7 @@ export class EngineService {
         true
       );
       const previous = this.cached.get(providerID);
-      const fallback = fallbackFromHistory(this.history, providerID, now, defaultAccountKey);
+      const fallback = fallbackFromHistory(this.history, providerID, now, defaultAccountKey, capacityAccount);
       const capacity = firstCapacity(previous, fallback.today, fallback.capacity);
       this.cached.set(providerID, {
         id: adapter.id,
@@ -285,6 +320,8 @@ export class EngineService {
         windows: capacity?.windows ?? [],
         identity: capacity?.identity ?? null,
         credits: capacity?.credits ?? null,
+        ...(adapter.capacityAccountKey ? { quotaMetrics: capacity?.quotaMetrics ?? [] }
+          : capacity?.quotaMetrics ? { quotaMetrics: capacity.quotaMetrics } : {}),
         analytics: fallback.composed ?? previous?.analytics ?? null,
         error: { code: known.code, message: known.message, retryable: known.retryable },
         updatedAt: capacity?.updatedAt ?? null
@@ -386,8 +423,13 @@ function fallbackFromHistory(
   history: HistoryStore,
   providerID: string,
   now: Date,
-  defaultAccountKey: string
+  defaultAccountKey: string,
+  capacityAccount?: string | null
 ): { today: HistoryDayRecord | null; capacity: HistoryDayRecord | null; composed: DashboardProvider["analytics"] } {
+  if (capacityAccount !== undefined) return {
+    today: null, composed: null,
+    capacity: capacityAccount === null ? null : safeHistory(() => history.latestCapacity?.(providerID, capacityAccount) ?? null, null, "read")
+  };
   const today = localCalendarDay(now);
   const startDay = shiftLocalDay(today, -(HISTORY_SNAPSHOT_DAYS - 1));
   const rows = safeHistory(() => history.getRange(providerID, startDay, shiftLocalDay(today, 1)), [], "read");
@@ -414,8 +456,15 @@ function firstCapacity(
   windows: DashboardWindow[];
   identity: DashboardProvider["identity"];
   credits: DashboardProvider["credits"];
+  quotaMetrics: DashboardProvider["quotaMetrics"];
   updatedAt: string | null;
 } | null {
+  // An empty quota snapshot is authoritative, including after a credential change.
+  // Falling back field by field can resurrect a different account's limits.
+  if (previous?.source === "provider_quota") return {
+    source: previous.source, windows: previous.windows, identity: previous.identity ?? null,
+    credits: previous.credits ?? null, quotaMetrics: previous.quotaMetrics, updatedAt: previous.updatedAt ?? null
+  };
   const windows = firstWindows(previous?.windows, today?.payload.windows, stored?.payload.windows);
   const identity = previous?.identity ?? today?.payload.identity ?? stored?.payload.identity ?? null;
   const credits = previous?.credits ?? today?.payload.credits ?? stored?.payload.credits ?? null;
@@ -433,7 +482,8 @@ function firstCapacity(
     ?? stored?.payload.capturedAt
     ?? previous?.updatedAt
     ?? null;
-  return { source, windows, identity, credits, updatedAt };
+  const quotaMetrics = previous?.quotaMetrics ?? today?.payload.quotaMetrics ?? stored?.payload.quotaMetrics;
+  return { source, windows, identity, credits, quotaMetrics, updatedAt };
 }
 
 function firstWindows(

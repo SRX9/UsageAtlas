@@ -95,10 +95,11 @@ export class StatisticsStore {
       observedAt: analytics.updatedAt, ...provenance });
   }
   capacity(provider: UsageProvider, account: string, replica: string, live: Omit<DashboardProvider, "id" | "name" | "enabled">): void {
-    if (live.error || !live.updatedAt || (!live.windows.length && !live.identity?.plan && !live.credits)) return;
+    if (live.error || !live.updatedAt || (!live.windows.length && !live.identity?.plan && !live.credits && !live.quotaMetrics?.length)) return;
     this.put(identifyFact({ schemaVersion: 1, id: "", kind: "capacity", providerId: provider,
       sourceId: usageSource(replica, provider, account), observedAt: live.updatedAt,
       plan: live.identity?.plan ?? null, credits: live.credits ?? null,
+      ...(live.quotaMetrics ? { quotaMetrics: live.quotaMetrics } : {}),
       windows: live.windows.map(w => ({ kind: w.kind, label: w.label, usedPercent: w.usedPercent, resetAt: w.resetAt ?? null })) }));
   }
   pending(): UsageFact[] {

@@ -1,6 +1,16 @@
 import structural from "./usage-validator.cjs";
 
-export type UsageProvider = "codex" | "claude" | "cursor" | "opencode";
+export type UsageProvider = "codex" | "claude" | "cursor" | "opencode" | "antigravity" | "pi" | "muse" | "warp" | "kimi" | "kilo" | "copilot" | "factory" | "amp" | "qoder";
+/** Provider-reported capacity counters. Never add these to historical usage totals. */
+export interface QuotaMetric {
+  id: string;
+  label: string;
+  unit: "credits" | "USD" | "hours" | "requests" | "tokens" | "percent";
+  used: number | null;
+  limit: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+}
 export interface StoredTotals {
   inputTokens: number;
   cachedInputTokens: number;
@@ -32,6 +42,7 @@ export interface UsageDay extends BaseRecord {
 }
 export interface CapacitySnapshot extends BaseRecord {
   kind: "capacity_snapshot";
+  quotaMetrics?: QuotaMetric[];
   status: "available" | "partial" | "unavailable";
   planKey:
     | "free"

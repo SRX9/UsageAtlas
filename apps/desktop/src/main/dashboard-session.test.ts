@@ -37,6 +37,64 @@ async function setup() {
 }
 
 describe("dashboard account transitions", () => {
+  it("discards a refresh started before provider credentials changed", async () => {
+    const { session, engine, states, collected } = await setup();
+    const old = deferred<DashboardSnapshot>();
+    engine.getSnapshot.mockReturnValueOnce(old.promise);
+    const pending = session.refresh();
+    await vi.waitFor(() => expect(engine.getSnapshot).toHaveBeenCalledOnce());
+    const credential = deferred<void>();
+    const configure = vi.fn(() => credential.promise);
+    const current = empty();
+    engine.setProviderEnabled.mockResolvedValue(current);
+    const changed = session.setProviderEnabled("warp", true, configure);
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledOnce());
+    expect(engine.setProviderEnabled).not.toHaveBeenCalled();
+    old.resolve(snapshot());
+    await pending;
+    expect(collected).not.toHaveBeenCalled();
+    credential.resolve();
+    await changed;
+    expect(states.at(-1)?.snapshot).toBe(current);
+    expect(collected).toHaveBeenCalledExactlyOnceWith(current);
+  });
+
+  it("does not enable a provider when saving its credential fails", async () => {
+    const { session, engine } = await setup();
+    const state = await session.setProviderEnabled("warp", true, async () => { throw new Error("Keyring locked"); });
+    expect(state).toMatchObject({ refreshing: false, error: "Keyring locked" });
+    expect(engine.setProviderEnabled).not.toHaveBeenCalled();
+  });
+
+  it("discards a refresh started before provider credentials changed", async () => {
+    const { session, engine, states, collected } = await setup();
+    const old = deferred<DashboardSnapshot>();
+    engine.getSnapshot.mockReturnValueOnce(old.promise);
+    const pending = session.refresh();
+    await vi.waitFor(() => expect(engine.getSnapshot).toHaveBeenCalledOnce());
+    const credential = deferred<void>();
+    const configure = vi.fn(() => credential.promise);
+    const current = empty();
+    engine.setProviderEnabled.mockResolvedValue(current);
+    const changed = session.setProviderEnabled("warp", true, configure);
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledOnce());
+    expect(engine.setProviderEnabled).not.toHaveBeenCalled();
+    old.resolve(snapshot());
+    await pending;
+    expect(collected).not.toHaveBeenCalled();
+    credential.resolve();
+    await changed;
+    expect(states.at(-1)?.snapshot).toBe(current);
+    expect(collected).toHaveBeenCalledExactlyOnceWith(current);
+  });
+
+  it("does not enable a provider when saving its credential fails", async () => {
+    const { session, engine } = await setup();
+    const state = await session.setProviderEnabled("warp", true, async () => { throw new Error("Keyring locked"); });
+    expect(state).toMatchObject({ refreshing: false, error: "Keyring locked" });
+    expect(engine.setProviderEnabled).not.toHaveBeenCalled();
+  });
+
   it("scopes local import progress to the selected account and clears it on account switch", async () => {
     const { session, states } = await setup();
     const progress = { completed: 250, total: 701, error: null };

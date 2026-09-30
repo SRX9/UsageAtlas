@@ -1,4 +1,6 @@
 import { CloudAccount } from "./cloud-account";
+import { ProviderCredentialStore, configureProviderCredentials } from "./provider-credentials";
+import { isQuotaProvider, validateProviderCredential } from "../shared/quota-providers";
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import {
@@ -60,7 +62,8 @@ if (process.env.USAGEATLAS_SMOKE_TEST === "1") {
   writeFileSync(path.join(directory, "desktop-preferences.json"), JSON.stringify({
     launchAtLogin: false,
     anonymousAnalytics: false,
-    providerEnabled: { codex: false, claude: false, cursor: false, opencode: false }
+    providerEnabled: { codex: false, claude: false, cursor: false, opencode: false, antigravity: false, pi: false, muse: false,
+      warp: false, kimi: false, kilo: false, copilot: false, factory: false, amp: false, qoder: false }
   }));
 }
 if (process.platform === "win32") {
@@ -77,6 +80,7 @@ let isQuitting = false;
 let installPendingUpdate: (() => void) | null = null;
 let engine: EngineManager;
 let cloudAccount: CloudAccount;
+let providerCredentials: ProviderCredentialStore;
 let preferences: PreferenceStore;
 let telemetry: DesktopTelemetry;
 let dashboard: DashboardSession;
@@ -304,6 +308,22 @@ function updateTrayMenu(snapshot: DashboardSnapshot | null = lastTraySnapshot): 
 }
 
 function registerIPC(): void {
+  ipcMain.handle(IPC.getProviderCredentials, event => {
+    assertTrustedSender(event);
+    return providerCredentials.statuses();
+  });
+  ipcMain.handle(IPC.setProviderCredential, async (event, id: unknown, raw: unknown) => {
+    assertTrustedSender(event);
+    if (!isQuotaProvider(id)) throw new Error("Unsupported provider connection.");
+    const credential = validateProviderCredential(id, raw);
+    const state = await dashboard.setProviderEnabled(id, credential !== null, async () => {
+      providerCredentials.save(id, credential);
+      await engine.updateConfig({ provider: id, credential: credential ? { ...credential } : null });
+      preferences.update({ providerEnabled: { ...preferences.get().providerEnabled, [id]: credential !== null } });
+    });
+    if (state.error) throw new Error(state.error);
+    return providerCredentials.statuses();
+  });
   ipcMain.handle(IPC.getUpdateState, (event) => {
     assertTrustedSender(event);
     return updates.getState();
@@ -495,6 +515,7 @@ if (squirrelStartup) {
   session.defaultSession.setPermissionCheckHandler(() => false);
   await registerApplicationProtocol();
   preferences = new PreferenceStore();
+  providerCredentials = new ProviderCredentialStore(path.join(app.getPath("userData"), "provider-credentials"));
   telemetry = new DesktopTelemetry(preferences);
   engine = new EngineManager(
     () => new UtilityEngineTransport(
@@ -519,8 +540,10 @@ if (squirrelStartup) {
     dashboard.configure(accountId, configure, reconnect));
   engine.onHistoryChanged(() => dashboard.historyChanged());
   await cloudAccount.initialize().catch(() => undefined);
+  await configureProviderCredentials(providerCredentials, engine);
   engine.onStatus(status => {
-    if (status === "ready") void cloudAccount.reconnect().catch(() => undefined);
+    if (status === "ready") void configureProviderCredentials(providerCredentials, engine).then(() => engine.applyProviderPreferences(preferences.get().providerEnabled))
+      .then(() => cloudAccount.reconnect()).catch(() => undefined);
   });
   await engine.applyProviderPreferences(preferences.get().providerEnabled);
   dashboard.activate();

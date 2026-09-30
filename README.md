@@ -6,7 +6,7 @@
 
 <p align="center">
   One desktop dashboard for your AI coding usage.<br>
-  See quota, resets, tokens, requests, and cost across Codex, Claude, Cursor, and OpenCode. No account required.
+  Track AI coding history, allowances, and balances across 14 tools. No UsageAtlas account required.
 </p>
 
 <p align="center">
@@ -44,15 +44,31 @@ Every asset is listed with its SHA-256 in `SHA256SUMS` on the release. macOS and
 
 ## What it reads
 
-UsageAtlas reuses the credentials the tools already keep on your machine. Nothing else is needed to sign in.
+UsageAtlas reads local activity and reuses supported tool sign-ins. Providers that require an API key or session can be connected in **Settings → Sources**.
 
 - **Codex** — talks to the installed, signed-in Codex CLI through its official local app-server API. The OAuth token is never read.
 - **Claude** — reads `CLAUDE_CODE_OAUTH_TOKEN` or `.credentials.json` in your Claude config directory, then queries the OAuth usage endpoint.
 - **Cursor** — reuses the signed-in desktop session from Cursor's local state database for account limits plus 90 days of per-request token, model, and cost history.
 - **OpenCode** — reads the local OpenCode database for per-step token, request, project, model, and cost analytics.
 
-Four more providers are on the way. A provider only ships once it has complete authentication, structured error
-handling, and deterministic adapter tests.
+- **Antigravity** reads local CLI conversation databases for timestamped tokens, requests, models, sessions, and API-price estimates.
+- **Pi / OMP** reads local JSONL sessions for Anthropic and OpenAI Codex backend usage, including cache tokens, projects, and API-price estimates.
+- **Muse Code** reads local inference and automated-review events for token, request, model, and session history. Monetary costs remain unknown.
+
+Antigravity, Pi / OMP, and Muse Code collect local history without credentials. They do not collect subscription quotas.
+See [provider setup and field mappings](docs/LOCAL_PROVIDERS.md) for supported locations and limitations.
+
+Seven more integrations read current provider allowances and balances:
+
+- **Warp** reads monthly and add-on credits, with workspace pools kept separate.
+- **Kimi Code** reads five-hour, weekly, and monthly allowances for the selected region.
+- **Kilo Code** reads active credit blocks, balances, and Kilo Pass usage for a personal or organization scope.
+- **GitHub Copilot** reads reported premium, chat, and completion quotas, plus seat credit usage where available.
+- **Factory / Droid** reads Standard and Core limits, extra usage balances, and supported legacy billing counters.
+- **Amp** reads Free and Agent allowances, Orb hours, and personal and workspace balances.
+- **Qoder** reads personal and shared credits for the selected region.
+
+These seven do not provide token, request, project, or cost history through these integrations. Missing allowances stay unknown. Credentials saved in Settings use the operating system's encrypted storage and never enter cloud saves. See [quota provider setup](docs/QUOTA_PROVIDERS.md) for credentials, supported formats, and limitations.
 
 ## Highlights
 

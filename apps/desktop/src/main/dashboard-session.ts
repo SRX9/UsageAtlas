@@ -84,11 +84,12 @@ export class DashboardSession {
     return this.collect(() => force ? this.engine.refreshAll() : this.engine.getSnapshot());
   }
 
-  setProviderEnabled(providerID: string, enabled: boolean): Promise<DashboardState> {
+  setProviderEnabled(providerID: string, enabled: boolean, configure?: () => Promise<void>): Promise<DashboardState> {
     if (this.configurationFailed && !this.configuration) return Promise.resolve(this.state);
     const configuring = this.configuration !== null;
     this.invalidate();
     return this.collect(async () => {
+      await configure?.();
       const snapshot = await this.engine.setProviderEnabled(providerID, enabled);
       return configuring ? this.engine.getSnapshot() : snapshot;
     });

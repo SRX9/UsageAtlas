@@ -9,6 +9,8 @@ import { ExternalIcon, RefreshIcon } from "../icons";
 import { providerConnection, type ProviderConnection } from "../provider-connection";
 import { BUILT_IN_WALLPAPERS } from "../wallpapers";
 import { ProviderLogo } from "./ProviderLogo";
+import { ProviderCredentialForm } from "./ProviderCredentialForm";
+import { isQuotaProvider } from "../../shared/quota-providers";
 
 interface SettingsProps {
   updateState: DesktopUpdateState | null;
@@ -182,6 +184,7 @@ export function Settings({
             <Card.Content className="atlas-settings-list mt-2">
               {sources.length ? (
                 sources.map(({ provider, connection }) => (
+                  <div key={provider.id}>
                   <SettingRow
                     checked={provider.enabled}
                     description={<ConnectionCopy connection={connection} />}
@@ -209,6 +212,8 @@ export function Settings({
                       ) : null
                     }
                   />
+                  {isQuotaProvider(provider.id) ? <ProviderCredentialForm provider={provider.id} /> : null}
+                  </div>
                 ))
               ) : (
                 <p className="px-3 py-5 text-sm text-muted" role="status">

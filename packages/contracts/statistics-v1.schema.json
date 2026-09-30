@@ -22,7 +22,17 @@
             "codex",
             "claude",
             "cursor",
-            "opencode"
+            "opencode",
+            "antigravity",
+            "pi",
+            "muse",
+            "warp",
+            "kimi",
+            "kilo",
+            "copilot",
+            "factory",
+            "amp",
+            "qoder"
           ]
         },
         "observedAt": {
@@ -300,7 +310,17 @@
             "codex",
             "claude",
             "cursor",
-            "opencode"
+            "opencode",
+            "antigravity",
+            "pi",
+            "muse",
+            "warp",
+            "kimi",
+            "kilo",
+            "copilot",
+            "factory",
+            "amp",
+            "qoder"
           ]
         },
         "observedAt": {
@@ -412,7 +432,17 @@
             "codex",
             "claude",
             "cursor",
-            "opencode"
+            "opencode",
+            "antigravity",
+            "pi",
+            "muse",
+            "warp",
+            "kimi",
+            "kilo",
+            "copilot",
+            "factory",
+            "amp",
+            "qoder"
           ]
         },
         "observedAt": {
@@ -504,6 +534,13 @@
               "type": "null"
             }
           ]
+        },
+        "quotaMetrics": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/quotaMetric"
+          }
         }
       },
       "required": [
@@ -518,5 +555,72 @@
         "credits"
       ]
     }
-  ]
+  ],
+  "$defs": {
+    "quotaMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "unit",
+        "used",
+        "limit",
+        "remaining",
+        "resetAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,64}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "unit": {
+          "enum": [
+            "credits",
+            "USD",
+            "hours",
+            "requests",
+            "tokens",
+            "percent"
+          ]
+        },
+        "used": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "limit": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "remaining": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resetAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
+import type { ProviderCredential } from "../shared/quota-providers";
 
 export interface ProviderContext {
   signal: AbortSignal;
@@ -16,6 +17,9 @@ export type ProviderRefreshResult = Omit<DashboardProvider, "id" | "name" | "ena
 };
 
 export interface ProviderAdapter {
+  configureCredential?(value: ProviderCredential | null, unavailable?: boolean): void;
+  /** Selected quota scope, including before the first successful network request. */
+  capacityAccountKey?(): Promise<string | null>;
   readonly id: string;
   readonly name: string;
   isAvailable?(): Promise<boolean>;

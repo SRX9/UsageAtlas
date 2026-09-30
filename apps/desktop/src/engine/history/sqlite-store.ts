@@ -6,7 +6,7 @@ import type { DashboardProvider, HistoryDayPayload, HistoryDayRecord } from "@us
 import { openWritableSqlite, type WritableSqliteDatabase } from "../platform/sqlite";
 import { dayRange } from "./days";
 import { canReplaceSealed, emptyUsageTotals, isEmptyHistoryPayload, readHistoryDayPayload } from "./payload";
-import { stableId, usageSource, toUsageDay, toCapacity, fromUsageDay, previewModelRecovery } from "./usage-payload";
+import { stableId, usageSource, toUsageDay, toCapacity, fromUsageDay, previewModelRecovery, capacityWindows } from "./usage-payload";
 import { UsageStore, type LocalRecord } from "./usage-store";
 import type { HistoryStore } from "./types";
 
@@ -96,16 +96,8 @@ export class SqliteHistoryStore implements HistoryStore {
       if (!history) return [];
       const current = capacity.find((c) => c.record.sourceId === row.record.sourceId)?.record;
       if (current?.kind === "capacity_snapshot" && !history.payload.windows.length) {
-        history.payload.windows = current.windows.map((window) => ({
-          kind: window.kind,
-          label:
-            window.labelKey === "duration"
-              ? `${window.durationMinutes! / 60} hours`
-              : window.labelKey.replaceAll("_", " "),
-          usedPercent: window.usedPercent,
-          remainingPercent: Math.max(0, 100 - window.usedPercent),
-          resetAt: window.resetAt
-        }));
+        history.payload.windows = capacityWindows(current);
+        history.payload.quotaMetrics = current.quotaMetrics;
         history.payload.identity = current.planKey ? { plan: current.planKey } : null;
       }
       return [history];
@@ -175,6 +167,7 @@ export class SqliteHistoryStore implements HistoryStore {
       payloadVersion: 1,
       accountKey,
       windows: live.windows,
+      ...(live.quotaMetrics ? { quotaMetrics: live.quotaMetrics } : {}),
       identity: live.identity ?? null,
       credits: live.credits ?? null,
       source: live.source,
@@ -210,10 +203,11 @@ export class SqliteHistoryStore implements HistoryStore {
       this.usage.onChange?.();
     }
   }
-  latestCapacity(providerId: string): HistoryDayRecord | null {
+  latestCapacity(providerId: string, accountKey?: string): HistoryDayRecord | null {
+    const sourceId = accountKey === undefined ? null : usageSource(this.replica, providerId, accountKey);
     const latest = this.usage
       .records(providerId)
-      .filter((row) => row.record.kind === "capacity_snapshot")
+      .filter((row) => row.record.kind === "capacity_snapshot" && (sourceId === null || row.record.sourceId === sourceId))
       .sort((a, b) => b.record.observedAt.localeCompare(a.record.observedAt))[0];
     if (!latest || latest.record.kind !== "capacity_snapshot") return null;
     const capacity = latest.record;
@@ -235,16 +229,8 @@ export class SqliteHistoryStore implements HistoryStore {
       details
     );
     if (!details) {
-      row.payload.windows = capacity.windows.map((window) => ({
-        kind: window.kind,
-        label:
-          window.labelKey === "duration"
-            ? `${window.durationMinutes! / 60} hours`
-            : window.labelKey.replaceAll("_", " "),
-        usedPercent: window.usedPercent,
-        remainingPercent: Math.max(0, 100 - window.usedPercent),
-        resetAt: window.resetAt
-      }));
+      row.payload.quotaMetrics = capacity.quotaMetrics;
+      row.payload.windows = capacityWindows(capacity);
       row.payload.identity = capacity.planKey ? { plan: capacity.planKey } : null;
     }
     return row;

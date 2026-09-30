@@ -35,7 +35,10 @@ describe("provider adapters", () => {
       "codex",
       "claude",
       "cursor",
-      "opencode"
+      "opencode",
+      "antigravity",
+      "pi",
+      "muse", "warp", "kimi", "kilo", "copilot", "factory", "amp", "qoder"
     ]);
   });
 

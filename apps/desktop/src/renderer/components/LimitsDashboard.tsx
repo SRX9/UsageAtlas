@@ -16,6 +16,7 @@ import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from "../icons";
 import { enabledProviders } from "../personal-analytics";
 import { LimitMeter } from "./CapacityMeters";
 import { ProviderLogo } from "./ProviderLogo";
+import { QuotaDetails } from "./QuotaDetails";
 
 const TODAY_PREVIEW_LIMITS = 4;
 
@@ -157,6 +158,7 @@ export function LimitsDashboard({
           </ul>
         </section>
       ) : null}
+      <QuotaDetails providers={providers} />
     </div>
   );
 }

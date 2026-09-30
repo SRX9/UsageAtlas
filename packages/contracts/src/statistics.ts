@@ -1,4 +1,4 @@
-import type { StoredTotals, UsageProvider } from "./usage";
+import type { QuotaMetric, StoredTotals, UsageProvider } from "./usage";
 import structural from "./statistics-validator.cjs";
 
 export const STATISTICS_BATCH_SIZE = 250;
@@ -84,6 +84,7 @@ export interface CollectionFact extends FactBase {
 }
 export interface CapacityFact extends FactBase {
   kind: "capacity";
+  quotaMetrics?: QuotaMetric[];
   plan: string | null;
   windows: { kind: string; label: string; usedPercent: number; resetAt: string | null }[];
   credits: { remaining: number; unit: string } | null;

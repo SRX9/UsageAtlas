@@ -7,7 +7,7 @@ export interface LimitEntry {
 
 export type TrayLimitPreferences = Record<string, boolean>;
 
-export const DEFAULT_LIMIT_PROVIDER_ORDER = ["codex", "claude", "cursor", "opencode"] as const;
+export const DEFAULT_LIMIT_PROVIDER_ORDER = ["codex", "claude", "cursor", "opencode", "antigravity", "pi", "muse", "warp", "kimi", "kilo", "copilot", "factory", "amp", "qoder"] as const;
 
 const LIMIT_KEY_PATTERN = /^[a-z0-9-]{1,64}:[a-z0-9_-]{1,64}$/u;
 const MAX_STORED_LIMITS = 128;

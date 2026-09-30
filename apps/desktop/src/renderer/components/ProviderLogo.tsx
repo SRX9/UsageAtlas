@@ -2,6 +2,16 @@ import ClaudeCode from "@lobehub/icons/es/ClaudeCode/components/Color.js";
 import Codex from "@lobehub/icons/es/Codex/components/Color.js";
 import Cursor from "@lobehub/icons/es/Cursor/components/Mono.js";
 import OpenCode from "@lobehub/icons/es/OpenCode/components/Mono.js";
+import Antigravity from "@lobehub/icons/es/Antigravity/components/Color.js";
+import Meta from "@lobehub/icons/es/Meta/components/Color.js";
+import Kimi from "@lobehub/icons/es/Kimi/components/Color.js";
+import KiloCode from "@lobehub/icons/es/KiloCode/components/Mono.js";
+import GithubCopilot from "@lobehub/icons/es/GithubCopilot/components/Mono.js";
+import Amp from "@lobehub/icons/es/Amp/components/Color.js";
+import Qoder from "@lobehub/icons/es/Qoder/components/Color.js";
+
+const warpLogo = new URL("../assets/providers/warp.svg", import.meta.url).href;
+const factoryLogo = new URL("../assets/providers/factory.svg", import.meta.url).href;
 
 interface ProviderLogoProps {
   providerID: string;
@@ -32,7 +42,12 @@ export function ProviderLogo({
         ? Cursor
         : providerID === "opencode"
           ? OpenCode
-          : null;
+          : providerID === "antigravity"
+            ? Antigravity
+            : providerID === "muse"
+              ? Meta
+              : providerID === "kimi" ? Kimi : providerID === "kilo" ? KiloCode
+                : providerID === "copilot" ? GithubCopilot : providerID === "amp" ? Amp : providerID === "qoder" ? Qoder : null;
   const avatarClassName = mark
     ? "size-[18px] text-[10px]"
     : mini
@@ -41,10 +56,11 @@ export function ProviderLogo({
         ? "size-12 text-base"
         : "size-16 text-xl";
   const iconSize = mark ? 16 : mini ? 22 : compact ? 27 : 32;
+  const image = providerID === "warp" ? warpLogo : providerID === "factory" ? factoryLogo : null;
 
   return (
     <span aria-hidden="true" className={`atlas-provider-logo ${avatarClassName}`}>
-      {Icon ? <Icon size={iconSize} /> : providerName.slice(0, 1)}
+      {Icon ? <Icon size={iconSize} /> : image ? <img alt="" height={iconSize} src={image} width={iconSize} /> : providerID === "pi" ? "π" : providerName.slice(0, 1)}
     </span>
   );
 }

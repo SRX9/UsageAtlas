@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { HistoryDayPayload, HistoryDayRecord, UsageTotals } from "@usageatlas/contracts";
+import type { DashboardWindow, HistoryDayPayload, HistoryDayRecord, UsageTotals } from "@usageatlas/contracts";
 import {
   validateUsageRecord,
   type UsageDay,
@@ -82,7 +82,7 @@ export function previewModelRecovery(record: UsageDay, details: HistoryDayPayloa
 }
 
 export function toCapacity(row: HistoryDayRecord, replica: string): CapacitySnapshot | null {
-  if (!row.payload.windows.length && !row.payload.identity?.plan) return null;
+  if (!row.payload.windows.length && !row.payload.identity?.plan && !row.payload.quotaMetrics?.length) return null;
   const sourceId = usageSource(replica, row.providerId, row.accountKey);
   const plan = row.payload.identity?.plan?.toLowerCase().trim()
     .replace(/^cursor\s+/, "").replace(/\+$/, " plus").replace(/\s+/g, "_");
@@ -93,6 +93,7 @@ export function toCapacity(row: HistoryDayRecord, replica: string): CapacitySnap
     sourceId,
     providerId: row.providerId as UsageProvider,
     kind: "capacity_snapshot",
+    ...(row.payload.quotaMetrics ? { quotaMetrics: row.payload.quotaMetrics } : {}),
     observedAt: row.payload.capturedAt,
     status: "available",
     planKey: plan ? (plans.includes(plan) ? (plan as CapacitySnapshot["planKey"]) : "other") : null,
@@ -113,6 +114,16 @@ export function toCapacity(row: HistoryDayRecord, replica: string): CapacitySnap
       };
     })
   };
+}
+export function capacityWindows(record: CapacitySnapshot): DashboardWindow[] {
+  if (record.quotaMetrics) return record.quotaMetrics.flatMap(m => {
+    if (m.used === null || m.limit === null || m.limit === 0 && m.used !== 0) return [];
+    const used = m.limit > 0 ? Math.min(100, m.used / m.limit * 100) : 100;
+    return [{ kind: m.id, label: m.label, usedPercent: used, remainingPercent: 100 - used, resetAt: m.resetAt }];
+  });
+  return record.windows.map(w => ({ kind: w.kind,
+    label: w.labelKey === "duration" ? `${w.durationMinutes! / 60} hours` : w.labelKey.replaceAll("_", " "),
+    usedPercent: w.usedPercent, remainingPercent: Math.max(0, 100 - w.usedPercent), resetAt: w.resetAt }));
 }
 export function fromUsageDay(
   record: UsageDay,
@@ -136,6 +147,7 @@ export function fromUsageDay(
       windows: details?.windows ?? [],
       identity: details?.identity ?? null,
       credits: details?.credits ?? null,
+      ...(details?.quotaMetrics ? { quotaMetrics: details.quotaMetrics } : {}),
       source: details?.source ?? "cloud_history",
       capturedAt: record.observedAt,
       status: record.status,

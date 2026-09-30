@@ -1,4 +1,6 @@
 import type { UsageCollection } from "./statistics";
+import type { QuotaMetric } from "./usage";
+export type { QuotaMetric } from "./usage";
 export const DASHBOARD_SCHEMA_VERSION = 2 as const;
 
 export type JsonValue =
@@ -96,6 +98,7 @@ export interface LocalUsageAnalytics {
 }
 
 export interface DashboardProvider {
+  quotaMetrics?: QuotaMetric[];
   id: string;
   name: string;
   enabled: boolean;
@@ -123,6 +126,7 @@ export const HISTORY_DAY_PAYLOAD_VERSION = 1 as const;
 
 /** One provider-login's usage and capacity for one local calendar day. Sync unit. */
 export interface HistoryDayPayload {
+  quotaMetrics?: QuotaMetric[];
   timeZone?: string | null;
   payloadVersion: typeof HISTORY_DAY_PAYLOAD_VERSION;
   accountKey: string;

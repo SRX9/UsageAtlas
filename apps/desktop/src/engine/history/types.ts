@@ -20,6 +20,6 @@ export interface HistoryStore {
   /** Promote every draft with local_day < today for this provider (all accounts). */
   sealDraftsBefore(providerId: string, today: string): HistoryDayRecord[];
   saveCapacity?(providerId: string, accountKey: string, live: Omit<DashboardProvider, "id" | "name" | "enabled">): void;
-  latestCapacity?(providerId: string): HistoryDayRecord | null;
+  latestCapacity?(providerId: string, accountKey?: string): HistoryDayRecord | null;
   close?(): void | Promise<void>;
 }

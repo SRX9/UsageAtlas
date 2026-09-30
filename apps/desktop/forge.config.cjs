@@ -154,7 +154,8 @@ module.exports = {
       build: [
         { entry: "src/main/main.ts", config: "vite.main.config.ts" },
         { entry: "src/preload/preload.ts", config: "vite.preload.config.ts" },
-        { entry: "src/engine/engine-entry.ts", config: "vite.main.config.ts" }
+        { entry: "src/engine/engine-entry.ts", config: "vite.main.config.ts" },
+        { entry: "src/engine/analytics/antigravity-worker.ts", config: "vite.main.config.ts" }
       ],
       renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }]
     }),

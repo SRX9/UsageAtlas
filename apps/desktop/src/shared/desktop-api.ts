@@ -1,4 +1,5 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
+import type { ProviderCredential, ProviderCredentialStatus, QuotaProviderId } from "./quota-providers";
 
 export type AppRoute = "day" | "trends" | "insights" | "limits" | "alerts" | "settings" | "diagnostics";
 export type EngineStatus = "starting" | "ready" | "degraded" | "stopped";
@@ -97,6 +98,8 @@ export interface DashboardState {
 }
 
 export interface UsageAtlasDesktopAPI {
+  getProviderCredentials(): Promise<Record<string, ProviderCredentialStatus>>;
+  setProviderCredential(provider: QuotaProviderId, credential: ProviderCredential | null): Promise<Record<string, ProviderCredentialStatus>>;
   getUpdateState(): Promise<DesktopUpdateState>;
   checkForUpdates(): Promise<DesktopUpdateState>;
   installUpdate(): Promise<void>;
@@ -118,6 +121,8 @@ export interface UsageAtlasDesktopAPI {
 }
 
 export const IPC = {
+  getProviderCredentials: "providers:credentials-status",
+  setProviderCredential: "providers:set-credential",
   getUpdateState: "updates:get",
   checkForUpdates: "updates:check",
   installUpdate: "updates:install",
