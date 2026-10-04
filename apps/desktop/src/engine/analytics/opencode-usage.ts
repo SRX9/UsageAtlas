@@ -47,9 +47,68 @@ interface MessageMetadata extends SessionMetadata {
 }
 
 const DEFAULT_HISTORY_DAYS = 90;
-const DEFAULT_MAX_RECORDS = 100_000;
+const DEFAULT_MAX_RECORDS = 250_000;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
 const GO_LIMITS = { session: 12, weekly: 30, monthly: 60 } as const;
+
+// OpenCode 2.0 moved per-message usage into `session_message` / `session_v2` and
+// stopped writing `message` / `part` / `session`, so on a migrated install those
+// tables still exist but stop advancing. Pick whichever schema is live.
+const V2_MESSAGE_TABLE = "session_message";
+const V2_SESSION_TABLE = "session_v2";
+
+// Usage payloads embed the assistant's tool calls, so a single `data` value
+// reaches ~100 MB and the message table is over a gigabyte. None of it is parsed,
+// and reading whole rows is what used to push these tables past the record cap,
+// so select only the keys the parser reads. `json_valid` keeps an unreadable
+// payload from failing the whole scan, as it was skipped before.
+const V2_MESSAGE_SQL = `
+  SELECT id, session_id, time_created,
+    json_object(
+      'role', type,
+      'model', json(json_extract(data, '$.model')),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json(json_extract(data, '$.tokens')),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM ${V2_MESSAGE_TABLE}
+  WHERE type = 'assistant' AND json_valid(data)
+  ORDER BY time_created DESC
+  LIMIT ?`;
+
+const MESSAGE_SQL = `
+  SELECT id, session_id, time_created,
+    json_object(
+      'role', json_extract(data, '$.role'),
+      'model', json(json_extract(data, '$.model')),
+      'modelID', json_extract(data, '$.modelID'),
+      'providerID', json_extract(data, '$.providerID'),
+      'provider', json_extract(data, '$.provider'),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json(json_extract(data, '$.tokens')),
+      'usage', json(json_extract(data, '$.usage')),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM message
+  WHERE json_valid(data)
+  ORDER BY time_created DESC
+  LIMIT ?`;
+
+// Only `step-finish` parts carry usage. The tool, text and patch parts that make
+// up most of the table are never parsed.
+const STEP_PART_SQL = `
+  SELECT id, message_id, time_created,
+    json_object(
+      'type', json_extract(data, '$.type'),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json(json_extract(data, '$.tokens')),
+      'usage', json(json_extract(data, '$.usage')),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM part
+  WHERE json_extract(data, '$.type') = 'step-finish' AND json_valid(data)
+  ORDER BY time_created DESC
+  LIMIT ?`;
 
 export class OpenCodeUsageScanner {
   private readonly locations: OpenCodeLocations;
@@ -104,13 +163,17 @@ export class OpenCodeUsageScanner {
       const tables = new Set(database.all(
         "SELECT name FROM sqlite_master WHERE type = 'table'"
       ).map((row) => text(row.name)).filter((name): name is string => name !== null));
-      if (!tables.has("message")) {
+      const v2 = tables.has(V2_MESSAGE_TABLE);
+      if (!v2 && !tables.has("message")) {
         throw new ProviderError("analytics_unavailable", "OpenCode's local database has no message history.");
       }
-      const messageRows = readBoundedTable(database, "message", this.maxRecords + 1);
-      const partRows = tables.has("part") ? readBoundedTable(database, "part", this.maxRecords + 1) : [];
-      const sessionRows = tables.has("session")
-        ? readBoundedTable(database, "session", Math.min(this.maxRecords, 10_000))
+      const sessionTable = v2 ? V2_SESSION_TABLE : "session";
+      const messageRows = database.all(v2 ? V2_MESSAGE_SQL : MESSAGE_SQL, [this.maxRecords + 1]);
+      const partRows = !v2 && tables.has("part")
+        ? database.all(STEP_PART_SQL, [this.maxRecords + 1])
+        : [];
+      const sessionRows = tables.has(sessionTable)
+        ? readBoundedTable(database, sessionTable, Math.min(this.maxRecords, 10_000))
         : [];
       signal.throwIfAborted();
       const parsed = parseOpenCodeRows(messageRows.slice(0, this.maxRecords), partRows.slice(0, this.maxRecords), sessionRows, signal);
