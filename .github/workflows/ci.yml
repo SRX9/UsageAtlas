@@ -35,12 +35,16 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         # image-size: build-only, no upstream fix. extract-zip: patched and regression-tested
         # by bun run test; version-only audits cannot recognize patches/extract-zip@2.0.1.patch.
+        # http-cache-semantics, braces: build-only (Electron Forge, Electron's downloader), no
+        # upstream fix.
         run: >-
           bun audit --audit-level=high
           --ignore=GHSA-w3rx-r6r6-pgpr
           --ignore=GHSA-5p2g-fcmc-qvqq
           --ignore=GHSA-jmr9-qjv8-65gv
           --ignore=GHSA-7pqw-9j4j-h8q3
+          --ignore=GHSA-ch52-4w7c-c8xp
+          --ignore=GHSA-vfj7-8cjw-p6xm
 
   package-windows:
     name: Package Windows x64
