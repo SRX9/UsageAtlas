@@ -159,10 +159,318 @@ describe("OpenCode local usage", () => {
       homeDirectory: "C:\\home"
     }).database).toBe(path.resolve("C:\\xdg-data", "opencode", "opencode.db"));
   });
+
+  it("reads current usage from the v2 session tables", async () => {
+    const home = await createHome();
+    const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+    await mkdir(locations.root, { recursive: true });
+    await writeFile(locations.auth, JSON.stringify({ "opencode-go": { type: "api", key: "secret" } }));
+    const database = new DatabaseSync(locations.database);
+    database.exec(`
+      CREATE TABLE session_v2 (
+        id TEXT PRIMARY KEY,
+        directory TEXT,
+        title TEXT,
+        model TEXT,
+        cost REAL,
+        tokens_input INTEGER,
+        tokens_output INTEGER,
+        tokens_reasoning INTEGER,
+        tokens_cache_read INTEGER,
+        tokens_cache_write INTEGER,
+        time_created INTEGER,
+        time_updated INTEGER,
+        data TEXT
+      );
+      CREATE TABLE session_message (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        type TEXT,
+        seq INTEGER,
+        time_created INTEGER,
+        time_updated INTEGER,
+        data TEXT
+      );
+    `);
+    database.prepare(`
+      INSERT INTO session_v2 (
+        id, directory, title, model, cost, tokens_input, tokens_output,
+        tokens_reasoning, tokens_cache_read, tokens_cache_write, time_created, time_updated, data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "session-v2",
+      "C:\\projects\\v2",
+      "V2",
+      JSON.stringify({ id: "gpt-5.6", providerID: "opencode-go" }),
+      4,
+      400,
+      80,
+      8,
+      200,
+      50,
+      now.valueOf() - 120_000,
+      now.valueOf() - 60_000,
+      "{}"
+    );
+    const created = now.valueOf() - 60 * 60 * 1_000;
+    const insert = database.prepare(`
+      INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    // The role lives in the `type` column and usage sits beside the tool calls.
+    insert.run(
+      "message-v2-1",
+      "session-v2",
+      "assistant",
+      1,
+      created,
+      created,
+      JSON.stringify({
+        agent: "build",
+        model: { id: "gpt-5.6", providerID: "opencode-go", variant: "max" },
+        content: [{ type: "tool", name: "shell", state: { content: [{ type: "text", text: "ok" }] } }],
+        finish: "tool-calls",
+        cost: 4,
+        tokens: { input: 400, output: 80, reasoning: 8, cache: { read: 200, write: 50 } },
+        time: { created, completed: created + 1_000 }
+      })
+    );
+    // Non-assistant turns must not become usage.
+    insert.run(
+      "message-v2-user",
+      "session-v2",
+      "user",
+      0,
+      created - 1_000,
+      created - 1_000,
+      JSON.stringify({ role: "user", text: "hello" })
+    );
+    database.close();
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.hasGoPlan).toBe(true);
+    expect(snapshot.analytics.status).toBe("available");
+    expect(snapshot.analytics.totals).toMatchObject({
+      inputTokens: 400,
+      cachedInputTokens: 200,
+      cacheCreationInputTokens: 50,
+      outputTokens: 88,
+      totalTokens: 738,
+      requests: 1,
+      estimatedCostUSD: 4
+    });
+    expect(snapshot.analytics.models.map((model) => model.id)).toEqual(["gpt-5.6"]);
+    expect(snapshot.analytics.projects[0]?.label).toBe("v2");
+    expect(snapshot.windows.map((window) => window.kind)).toEqual(["session", "weekly", "monthly"]);
+    expect(snapshot.windows[0]?.usedPercent).toBeCloseTo(33.3, 1);
+  });
+
+  it("counts a v1 session once after OpenCode 2.0 copies it", async () => {
+    const home = await createMigratingHome({ legacyCopied: true });
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.analytics.status).toBe("available");
+    expect(snapshot.analytics.models.map((model) => model.id).sort()).toEqual(["current-model", "legacy-model"]);
+    expect(snapshot.analytics.projects.map((project) => project.label).sort()).toEqual(["current", "stale"]);
+    expect(snapshot.analytics.totals.requests).toBe(2);
+    expect(snapshot.analytics.totals.estimatedCostUSD).toBe(101);
+  });
+
+  it("keeps v1 sessions that OpenCode 2.0 has not copied yet", async () => {
+    const home = await createMigratingHome({ legacyCopied: false });
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.analytics.status).toBe("available");
+    expect(snapshot.analytics.models.map((model) => model.id).sort()).toEqual(["current-model", "legacy-model"]);
+    expect(snapshot.analytics.totals.requests).toBe(2);
+    expect(snapshot.analytics.totals.estimatedCostUSD).toBe(101);
+  });
+
+  it("keeps reading 1.x databases that already ship an empty session_message table", async () => {
+    const home = await createHome();
+    const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+    await mkdir(locations.root, { recursive: true });
+    const database = new DatabaseSync(locations.database);
+    // OpenCode 1.18 has `session_message` from early 2.0 work, but never writes to it.
+    database.exec(`
+      CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER);
+      CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
+      CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
+      CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, time_created INTEGER, time_updated INTEGER, data TEXT, seq INTEGER);
+    `);
+    const created = now.valueOf() - 60 * 60 * 1_000;
+    database.prepare("INSERT INTO session VALUES (?, ?, ?, ?, ?)")
+      .run("session-1", "C:\\projects\\atlas", "Atlas", created, created);
+    database.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)").run(
+      "message-1",
+      "session-1",
+      created,
+      created,
+      JSON.stringify({
+        role: "assistant",
+        providerID: "openai",
+        modelID: "gpt-5.6",
+        time: { created },
+        tokens: { input: 30, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+        cost: 1
+      })
+    );
+    database.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)").run(
+      "part-1",
+      "message-1",
+      "session-1",
+      created,
+      created,
+      JSON.stringify({ type: "step-finish", tokens: { input: 30, output: 10, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 1 })
+    );
+    database.close();
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.analytics.status).toBe("available");
+    expect(snapshot.analytics.totals).toMatchObject({ requests: 1, totalTokens: 40, estimatedCostUSD: 1 });
+    expect(snapshot.analytics.projects.map((project) => project.label)).toEqual(["atlas"]);
+  });
+
+  it("reads a model stored as a plain string", async () => {
+    const home = await createHome();
+    const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+    await mkdir(locations.root, { recursive: true });
+    const database = new DatabaseSync(locations.database);
+    database.exec("CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);");
+    const created = now.valueOf() - 60 * 60 * 1_000;
+    database.prepare("INSERT INTO message VALUES (?, ?, ?, ?)").run(
+      "message-1",
+      "session-1",
+      created,
+      JSON.stringify({ role: "assistant", model: "gpt-5.6", time: { created }, tokens: { input: 5, output: 5 }, cost: 1 })
+    );
+    database.close();
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.analytics.models.map((model) => model.id)).toEqual(["gpt-5.6"]);
+    expect(snapshot.analytics.totals.requests).toBe(1);
+  });
+
+  it("skips unreadable usage payloads instead of failing the scan", async () => {
+    const home = await createHome();
+    const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+    await mkdir(locations.root, { recursive: true });
+    const database = new DatabaseSync(locations.database);
+    database.exec(`
+      CREATE TABLE session_message (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        type TEXT,
+        seq INTEGER,
+        time_created INTEGER,
+        time_updated INTEGER,
+        data TEXT
+      );
+      CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
+    `);
+    const created = now.valueOf() - 60 * 60 * 1_000;
+    const insert = database.prepare(`
+      INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data)
+      VALUES (?, 'session-broken', 'assistant', ?, ?, ?, ?)
+    `);
+    insert.run("broken", 1, created, created, "{not json");
+    insert.run(
+      "readable",
+      2,
+      created,
+      created,
+      JSON.stringify({
+        model: { id: "gpt-5.6", providerID: "opencode" },
+        cost: 1,
+        tokens: { input: 7, output: 3, reasoning: 0, cache: { read: 0, write: 0 } },
+        time: { created }
+      })
+    );
+    database.close();
+
+    const snapshot = await new OpenCodeUsageScanner({ homeDirectory: home, environment: {} })
+      .scan({ signal: new AbortController().signal, now });
+
+    expect(snapshot.analytics.totals).toMatchObject({
+      requests: 1,
+      totalTokens: 10,
+      estimatedCostUSD: 1
+    });
+  });
 });
 
 async function createHome(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "usageatlas-opencode-"));
   directories.push(directory);
   return directory;
+}
+
+// A 2.0 install keeps its frozen v1 tables. `legacyCopied` says whether 2.0's
+// background import has reached the old session yet.
+async function createMigratingHome({ legacyCopied }: { legacyCopied: boolean }): Promise<string> {
+  const home = await createHome();
+  const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+  await mkdir(locations.root, { recursive: true });
+  const database = new DatabaseSync(locations.database);
+  database.exec(`
+    CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
+    CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+    CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);
+    CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, title TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, data TEXT);
+    CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
+  `);
+  const insertV2Session = database.prepare(
+    "INSERT INTO session_v2 (id, directory, title, model, cost, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const insertV2Message = database.prepare(
+    "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, 'assistant', 0, ?, ?, ?)"
+  );
+  const stale = now.valueOf() - 30 * 24 * 60 * 60 * 1_000;
+  database.prepare("INSERT INTO session (id, directory, title, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)")
+    .run("session-legacy", "C:\\projects\\stale", "Stale", stale, stale, "{}");
+  database.prepare("INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)").run(
+    "message-legacy",
+    "session-legacy",
+    stale,
+    JSON.stringify({
+      role: "assistant",
+      providerID: "opencode",
+      modelID: "legacy-model",
+      time: { created: stale },
+      tokens: { input: 1, output: 1 },
+      cost: 99
+    })
+  );
+  database.prepare("INSERT INTO part (id, message_id, time_created, data) VALUES (?, ?, ?, ?)")
+    .run("part-legacy", "message-legacy", stale, JSON.stringify({ type: "step-finish", tokens: { input: 1, output: 1 }, cost: 99 }));
+  if (legacyCopied) {
+    // 2.0 keeps the v1 ids and moves the provider into `model`.
+    insertV2Session.run("session-legacy", "C:\\projects\\stale", "Stale", JSON.stringify({ id: "legacy-model", providerID: "opencode" }), 99, stale, stale, "{}");
+    insertV2Message.run("message-legacy", "session-legacy", stale, stale, JSON.stringify({
+      model: { id: "legacy-model", providerID: "opencode", variant: "default" },
+      cost: 99,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: stale }
+    }));
+  }
+  const fresh = now.valueOf() - 60 * 60 * 1_000;
+  insertV2Session.run("session-current", "C:\\projects\\current", "Current", JSON.stringify({ id: "current-model", providerID: "opencode" }), 2, fresh, fresh, "{}");
+  insertV2Message.run("message-current", "session-current", fresh, fresh, JSON.stringify({
+    model: { id: "current-model", providerID: "opencode" },
+    cost: 2,
+    tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: fresh }
+  }));
+  database.close();
+  return home;
 }

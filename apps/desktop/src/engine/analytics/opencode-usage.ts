@@ -47,9 +47,83 @@ interface MessageMetadata extends SessionMetadata {
 }
 
 const DEFAULT_HISTORY_DAYS = 90;
-const DEFAULT_MAX_RECORDS = 100_000;
+const DEFAULT_MAX_RECORDS = 250_000;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
 const GO_LIMITS = { session: 12, weekly: 30, monthly: 60 } as const;
+
+// OpenCode 2.0 creates `session_v2`, copies every v1 session into it with its
+// messages in `session_message`, then stops writing `session` / `message` / `part`.
+// The copy runs in the background, newest session first. 1.x releases already ship
+// an empty `session_message`, so only `session_v2` marks a 2.0 database.
+const V2_MESSAGE_TABLE = "session_message";
+const V2_SESSION_TABLE = "session_v2";
+
+// v1 sessions that 2.0 has not copied yet: older ones while its import is still
+// running, or one that failed to import. Driving the lookup from the small session
+// table lets a fully imported install skip the frozen v1 rows entirely.
+const PENDING_V1_SESSIONS = `session_id IN (
+    SELECT id FROM session WHERE id NOT IN (SELECT id FROM ${V2_SESSION_TABLE})
+  )`;
+const PENDING_V1_MESSAGES = `message_id IN (SELECT id FROM message WHERE ${PENDING_V1_SESSIONS})`;
+
+// Usage payloads embed the assistant's tool calls, so a single `data` value
+// reaches ~100 MB and the message table is over a gigabyte. None of it is parsed,
+// and reading whole rows is what used to push these tables past the record cap,
+// so select only the keys the parser reads. `json_valid` keeps an unreadable
+// payload from failing the whole scan, as it was skipped before. Objects keep
+// their JSON subtype through `json_extract`, so `json_object` nests them as-is;
+// wrapping them in `json()` would throw on a value that is a plain string.
+const V2_MESSAGE_SQL = `
+  SELECT id, session_id, time_created,
+    json_object(
+      'role', type,
+      'model', json_extract(data, '$.model'),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json_extract(data, '$.tokens'),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM ${V2_MESSAGE_TABLE}
+  WHERE type = 'assistant' AND json_valid(data)
+  ORDER BY time_created DESC
+  LIMIT ?`;
+
+function messageSql(scope: string): string {
+  return `
+  SELECT id, session_id, time_created,
+    json_object(
+      'role', json_extract(data, '$.role'),
+      'model', json_extract(data, '$.model'),
+      'modelID', json_extract(data, '$.modelID'),
+      'providerID', json_extract(data, '$.providerID'),
+      'provider', json_extract(data, '$.provider'),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json_extract(data, '$.tokens'),
+      'usage', json_extract(data, '$.usage'),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM message
+  WHERE ${scope}json_valid(data)
+  ORDER BY time_created DESC
+  LIMIT ?`;
+}
+
+// Only `step-finish` parts carry usage. The tool, text and patch parts that make
+// up most of the table are never parsed.
+function stepPartSql(scope: string): string {
+  return `
+  SELECT id, message_id, time_created,
+    json_object(
+      'type', json_extract(data, '$.type'),
+      'cost', json_extract(data, '$.cost'),
+      'tokens', json_extract(data, '$.tokens'),
+      'usage', json_extract(data, '$.usage'),
+      'time', json_object('created', COALESCE(json_extract(data, '$.time.created'), time_created))
+    ) AS data
+  FROM part
+  WHERE ${scope}json_valid(data) AND json_extract(data, '$.type') = 'step-finish'
+  ORDER BY time_created DESC
+  LIMIT ?`;
+}
 
 export class OpenCodeUsageScanner {
   private readonly locations: OpenCodeLocations;
@@ -104,14 +178,27 @@ export class OpenCodeUsageScanner {
       const tables = new Set(database.all(
         "SELECT name FROM sqlite_master WHERE type = 'table'"
       ).map((row) => text(row.name)).filter((name): name is string => name !== null));
-      if (!tables.has("message")) {
+      const v2 = tables.has(V2_SESSION_TABLE) && tables.has(V2_MESSAGE_TABLE);
+      // On 2.0 a v1 message only counts while its session is still waiting to be copied.
+      const v1 = tables.has("message") && (!v2 || tables.has("session"));
+      if (!v2 && !v1) {
         throw new ProviderError("analytics_unavailable", "OpenCode's local database has no message history.");
       }
-      const messageRows = readBoundedTable(database, "message", this.maxRecords + 1);
-      const partRows = tables.has("part") ? readBoundedTable(database, "part", this.maxRecords + 1) : [];
-      const sessionRows = tables.has("session")
-        ? readBoundedTable(database, "session", Math.min(this.maxRecords, 10_000))
+      const limit = this.maxRecords + 1;
+      const messageRows = [
+        ...(v2 ? database.all(V2_MESSAGE_SQL, [limit]) : []),
+        ...(v1 ? database.all(messageSql(v2 ? `${PENDING_V1_SESSIONS} AND ` : ""), [limit]) : [])
+      ].sort((left, right) => integer(right.time_created) - integer(left.time_created));
+      const partRows = v1 && tables.has("part")
+        ? database.all(stepPartSql(v2 ? `${PENDING_V1_MESSAGES} AND ` : ""), [limit])
         : [];
+      const sessionLimit = Math.min(this.maxRecords, 10_000);
+      const sessionRows = [
+        ...(v2 ? readBoundedTable(database, V2_SESSION_TABLE, sessionLimit) : []),
+        ...(tables.has("session")
+          ? readBoundedTable(database, "session", sessionLimit, v2 ? `id NOT IN (SELECT id FROM ${V2_SESSION_TABLE})` : "")
+          : [])
+      ];
       signal.throwIfAborted();
       const parsed = parseOpenCodeRows(messageRows.slice(0, this.maxRecords), partRows.slice(0, this.maxRecords), sessionRows, signal);
       return {
@@ -142,12 +229,13 @@ export function openCodeLocations(options: OpenCodeUsageScannerOptions = {}): Op
   };
 }
 
-function readBoundedTable(database: ReadonlySqliteDatabase, table: string, limit: number): SqliteRow[] {
+function readBoundedTable(database: ReadonlySqliteDatabase, table: string, limit: number, where = ""): SqliteRow[] {
   const columns = new Set(database.all(`PRAGMA table_info(${table})`)
     .map((row) => text(row.name))
     .filter((name): name is string => name !== null));
+  const filter = where ? ` WHERE ${where}` : "";
   const order = columns.has("time_created") ? " ORDER BY time_created DESC" : "";
-  return database.all(`SELECT * FROM ${table}${order} LIMIT ?`, [limit]);
+  return database.all(`SELECT * FROM ${table}${filter}${order} LIMIT ?`, [limit]);
 }
 
 function parseOpenCodeRows(
