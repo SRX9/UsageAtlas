@@ -129,10 +129,14 @@ The repo is a Bun + Turborepo workspace: the Electron app lives in `apps/desktop
 
 ## Releases
 
-Every push to `main` ships a release. CI takes the version in `apps/desktop/package.json`, moves the patch number to
-the first one that is not published yet, records that back on `main`, then builds, signs, and notarizes every
-platform, tags `desktop-v<version>`, and publishes the installers, `SHA256SUMS`, and the update feeds the in-app
-updater consumes. Write a new major or minor version there by hand and it releases as written instead.
+To ship a release, bump the version in `apps/desktop/package.json`, run `bun install --lockfile-only`, and push both
+files to `main`. The release workflow builds every platform, signs and notarizes macOS, tags `desktop-v<version>`,
+and publishes the installers, `SHA256SUMS`, and update feeds. A version that is already published is skipped.
+You can also push a matching `desktop-v<version>` tag or run **Release desktop** manually. Manual runs build without
+publishing by default; enable **publish** to publish the declared version.
+
+Routine CI runs lint, type checks, tests, a renderer build, and the dependency audit on Linux. Documentation-only
+changes skip CI. Windows and macOS tests, packaging, and installer smoke tests run when building a release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 

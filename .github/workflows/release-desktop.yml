@@ -5,6 +5,7 @@ name: Release desktop
 on:
   push:
     branches: [main]
+    paths: ["apps/desktop/package.json"]
     tags: ["desktop-v*"]
   workflow_dispatch:
     inputs:
@@ -29,23 +30,17 @@ jobs:
     name: Decide what this run publishes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      # Writes the version this run publishes back onto the branch.
-      contents: write
     outputs:
       build: ${{ steps.decide.outputs.build }}
       release: ${{ steps.decide.outputs.release }}
       tag: ${{ steps.decide.outputs.tag }}
       version: ${{ steps.decide.outputs.version }}
-      sha: ${{ steps.bump.outputs.sha || github.sha }}
+      sha: ${{ github.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 22
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: package.json
       - name: Compare the package version against published releases
         id: decide
         env:
@@ -59,7 +54,6 @@ jobs:
             echo "::error::apps/desktop/package.json has an unusable version: ${version}"
             exit 1
           fi
-          declared="$version"
           build=false
           release=false
 
@@ -74,88 +68,34 @@ jobs:
             fi
             build=true
             release=true
-          elif [[ "$version" == *-* ]]; then
-            # A prerelease suffix is a deliberate choice, so never guess the next one.
-            if gh release view "desktop-v${version}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "::error::desktop-v${version} is already published. Set the next prerelease in apps/desktop/package.json."
-              exit 1
-            fi
-            build=true
-            release=true
           else
-            # Every push to main ships. A version that is not published yet is
-            # released as written, so a hand-written major or minor bump wins;
-            # otherwise the patch walks forward to the first unpublished one.
-            series="${version%.*}"
-            patch="${version##*.}"
-            ceiling=$((patch + 100))
-            while gh release view "desktop-v${series}.${patch}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; do
-              patch=$((patch + 1))
-              if [[ "$patch" -gt "$ceiling" ]]; then
-                echo "::error::Found no unpublished patch between ${declared} and ${series}.${patch}. Bump the minor version in apps/desktop/package.json."
-                exit 1
-              fi
-            done
-            version="${series}.${patch}"
-            build=true
-            release=true
+            # A manifest-only dependency edit must not publish the same version.
+            # Fetch first so an API failure fails the job instead of looking like
+            # an unpublished version. Pagination also covers older releases.
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[].tag_name' > "$RUNNER_TEMP/published-tags"
+            if ! grep -Fxq "desktop-v${version}" "$RUNNER_TEMP/published-tags"; then
+              build=true
+              release=true
+            fi
           fi
 
-          bump=false
-          [[ "$version" != "$declared" ]] && bump=true
           {
             echo "build=$build"
             echo "release=$release"
             echo "tag=desktop-v${version}"
             echo "version=$version"
-            echo "bump=$bump"
           } >> "$GITHUB_OUTPUT"
           echo "### UsageAtlas ${version}" >> "$GITHUB_STEP_SUMMARY"
           echo "- build: \`${build}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- publish: \`${release}\` (\`desktop-v${version}\`)" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$bump" == "true" ]]; then
-            echo "- auto-bumped from \`${declared}\`, which is already published" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Record the released version on the branch
-        id: bump
-        if: ${{ steps.decide.outputs.bump == 'true' }}
-        env:
-          RELEASE_VERSION: ${{ steps.decide.outputs.version }}
-        shell: bash
-        # Every other job builds this commit, so the tag, the installers, and
-        # the manifest on the branch all carry one version. Pushing with
-        # GITHUB_TOKEN cannot start another run, which is what keeps a release
-        # from releasing itself; [skip ci] says the same thing out loud.
-        run: |
-          set -euo pipefail
-          node -e '
-            const fs = require("node:fs");
-            const file = "apps/desktop/package.json";
-            const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-            manifest.version = process.env.RELEASE_VERSION;
-            fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-          '
-          bun install --lockfile-only
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/desktop/package.json bun.lock
-          git commit -m "Release ${RELEASE_VERSION} [skip ci]"
-          if ! git push origin "HEAD:${GITHUB_REF_NAME}"; then
-            echo "::error::${GITHUB_REF_NAME} moved while this run was choosing a version. Nothing was published; re-run the workflow."
-            exit 1
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   quality:
-    name: Quality (${{ matrix.os }})
+    name: Quality (Linux)
     needs: gate
     if: ${{ needs.gate.outputs.build == 'true' }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15-intel, windows-2022]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -170,9 +110,8 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
-      - run: bun run build
+      # Each platform's make job builds the app; do not build a disposable copy here.
       - name: Audit shipped dependencies
-        if: ${{ runner.os == 'Linux' }}
         # image-size: build-only, no upstream fix. extract-zip: patched and regression-tested
         # by bun run test; version-only audits cannot recognize patches/extract-zip@2.0.1.patch.
         # http-cache-semantics, braces: build-only (Electron Forge, Electron's downloader), no
@@ -205,7 +144,13 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
       - run: bun ci
+      - run: bun run test
       - run: bun run generate:desktop-icons
       - name: Require PostHog token
         shell: bash
@@ -228,6 +173,23 @@ jobs:
             "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           }
       - run: bun run desktop:make -- --platform=win32 --arch=x64
+      - name: Verify packaged resources
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $resources = Get-ChildItem "out\UsageAtlas-win32-x64\resources" -File
+          if ($resources.Count -ne 1 -or $resources.Name -ne "app.asar") {
+            throw "Unexpected packaged resources: $($resources.Name -join ', ')"
+          }
+          $entries = & bunx asar list $resources.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "asar list failed with exit code $LASTEXITCODE"
+          }
+          $normalized = $entries | ForEach-Object { $_ -replace '\\', '/' }
+          if ($normalized -notcontains "/.vite/renderer/main_window/index.html") {
+            throw "Packaged renderer entry is missing from app.asar. Found $($entries.Count) entries."
+          }
       - name: Packaged smoke test
         shell: pwsh
         run: |
@@ -249,6 +211,8 @@ jobs:
           name: desktop-win32-x64
           path: apps/desktop/out/make/**
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -281,7 +245,14 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
       - run: bun ci
+      - run: bun run test
+        if: ${{ matrix.arch == 'x64' }}
       - name: Require PostHog token
         shell: bash
         run: |
@@ -351,6 +322,8 @@ jobs:
           name: desktop-darwin-${{ matrix.arch }}
           path: apps/desktop/out/make/**
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   linux:
     name: Linux ${{ matrix.arch }}
@@ -413,6 +386,8 @@ jobs:
           name: desktop-linux-${{ matrix.arch }}
           path: apps/desktop/out/make/**
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   publish:
     name: Publish desktop release
