@@ -33,6 +33,23 @@ Cloud validators are generated alongside the desktop contract. Deploy the update
 
 Paths are resolved using the current user's home directory on Windows, macOS, and Linux. Overrides must be absolute or start with `~/`. UsageAtlas must inherit the environment variables when it starts.
 
+### Windows Subsystem for Linux
+
+On Windows, UsageAtlas also reads the coding-agent sessions that live inside
+installed WSL distributions, so agents run with `codex`, `claude`, `opencode`,
+or `pi` inside WSL count alongside their Windows runs. Distribution homes are
+discovered from the `\\wsl$\` share (`\\wsl.localhost` as fallback) and merged
+with the Windows home; a session copied into both homes counts once. The
+Claude sign-in falls back to WSL homes the same way.
+
+- `USAGEATLAS_WSL_HOMES` pins the extra homes explicitly (separated like
+  `PATH`, e.g. `\\wsl$\Ubuntu\home\alice`). Useful for custom setups and for
+  testing on other platforms.
+- `USAGEATLAS_DISABLE_WSL=1` scans only the Windows home.
+
+Cursor and live quota APIs are unchanged: Cursor's state database and the
+`codex app-server` quota check already run on the Windows side.
+
 ### Antigravity
 
 - `~/.gemini/antigravity-cli/conversations/*.db`

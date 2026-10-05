@@ -1,10 +1,12 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
+import { homedir } from "node:os";
 import type { ProviderAdapter, ProviderContext } from "../provider";
 import { ProviderError } from "../provider";
 import { LocalUsageScanner, type AnalyticsScanner, type AnalyticsScanContext } from "../analytics/local-usage";
 import type { PricingCatalog } from "../analytics/models-dev";
 import { providerFailure, scanProviderAnalytics } from "../analytics/provider-analytics";
 import { credentialLocations } from "../platform/credentials";
+import { resolveScanHomes } from "../platform/wsl";
 import { fetchProviderJson, type FetchImplementation } from "../platform/http";
 import { readCredentialJson } from "../platform/json-file";
 import {
@@ -130,12 +132,21 @@ async function claudeCredential(
 ): Promise<ClaudeCredential> {
   const environmentToken = optionalString(environment.CLAUDE_CODE_OAUTH_TOKEN);
   if (environmentToken) return { accessToken: environmentToken, plan: null };
-  const location = credentialLocations(environment, homeDirectory).claude;
-  const root = object(await readCredentialJson(location, "Claude"), "Claude");
-  const oauth = optionalObject(root.claudeAiOauth, "Claude");
-  const accessToken = optionalString(oauth?.accessToken);
-  if (!accessToken) throw new ProviderError("credentials_invalid", "Claude credentials are invalid.");
-  return { accessToken, plan: optionalString(oauth?.subscriptionType) };
+  // Claude often runs inside WSL while UsageAtlas runs on Windows, so the
+  // sign-in can live in a distribution home instead of the Windows home.
+  const homes = await resolveScanHomes(homeDirectory ?? homedir(), { environment });
+  let lastError: unknown = null;
+  for (const home of homes) {
+    try {
+      const location = credentialLocations(environment, home).claude;
+      const root = object(await readCredentialJson(location, "Claude"), "Claude");
+      const oauth = optionalObject(root.claudeAiOauth, "Claude");
+      const accessToken = optionalString(oauth?.accessToken);
+      if (!accessToken) throw new ProviderError("credentials_invalid", "Claude credentials are invalid.");
+      return { accessToken, plan: optionalString(oauth?.subscriptionType) };
+    } catch (error) { lastError = error; }
+  }
+  throw lastError ?? new ProviderError("credentials_invalid", "Claude credentials are invalid.");
 }
 
 function claudeWindow(value: unknown, kind: string, label: string) {
