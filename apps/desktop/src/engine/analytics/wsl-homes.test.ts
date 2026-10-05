@@ -62,6 +62,13 @@ function seedOpenCode(databasePath: string, sessionID: string, input: number, ou
   database.close();
 }
 
+function museEvent(id: string) {
+  return { schema_version: 1, record_type: "event", payload_type: "runtime.session", payload_schema_version: 1, id,
+    recorded_at: Date.parse("2026-09-22T23:30:00Z") * 1000,
+    payload: { event: { kind: "model_completed", model: "muse-spark-1.3-contributor-free",
+      usage: { input_tokens: 100, output_tokens: 25 } } } };
+}
+
 describe("WSL homes join local scans", () => {
   it("adds Codex sessions from a second home", async () => {
     const primary = await makeHome(), wsl = await makeHome();
@@ -116,6 +123,20 @@ describe("WSL homes join local scans", () => {
     expect(snapshot.analytics.totals).toMatchObject({ inputTokens: 110, outputTokens: 53, requests: 2 });
   });
 
+  it("counts a database shared by both homes once", async () => {
+    const primary = await makeHome(), wsl = await makeHome();
+    for (const home of [primary, wsl]) {
+      const locations = openCodeLocations({ homeDirectory: home, environment: {} });
+      await mkdir(locations.root, { recursive: true });
+      seedOpenCode(locations.database, "shared-session", 100, 50);
+    }
+    const snapshot = await new OpenCodeUsageScanner({
+      homeDirectory: primary, environment: { USAGEATLAS_WSL_HOMES: wsl }
+    }).scan({ signal: new AbortController().signal, now });
+    expect(snapshot.analytics.status).toBe("available");
+    expect(snapshot.analytics.totals).toMatchObject({ inputTokens: 100, outputTokens: 50, requests: 1 });
+  });
+
   it("reads the Claude sign-in from the WSL home when Windows has none", async () => {
     const primary = await makeHome(), wsl = await makeHome();
     await mkdir(path.join(wsl, ".claude"), { recursive: true });
@@ -137,11 +158,37 @@ describe("WSL homes join local scans", () => {
     expect(result.identity?.plan).toBe("max");
   });
 
-  it("ignores the override variable when scanning a single home", async () => {
+  it("scans only the configured home when no extra homes are set", async () => {
     const primary = await makeHome();
     await writeJsonl(path.join(primary, ".codex/sessions/a.jsonl"), codexSession("solo", 10, 20));
     const scanner = new LocalUsageScanner({ homeDirectory: primary, environment: {} });
     const result = await scanner.scan("codex", context());
     expect(result.totals).toMatchObject({ totalTokens: 30, requests: 1 });
+  });
+
+  it("adds Muse sessions from a second home and counts copies once", async () => {
+    const primary = await makeHome(), wsl = await makeHome();
+    await writeJsonl(path.join(primary, ".local/share/muse/sessions/2026/09/22/session-a/session.jsonl"), [museEvent("muse-1")]);
+    await writeJsonl(path.join(wsl, ".local/share/muse/sessions/2026/09/22/session-a/session.jsonl"), [museEvent("muse-1")]);
+    await writeJsonl(path.join(wsl, ".local/share/muse/sessions/2026/09/22/session-b/session.jsonl"), [museEvent("muse-2")]);
+    const scanner = new JsonSessionUsageScanner("muse", {
+      homeDirectory: primary, environment: { USAGEATLAS_WSL_HOMES: wsl }
+    });
+    const result = await scanner.scan(context());
+    expect(result.status).toBe("available");
+    expect(result.totals.requests).toBe(2);
+  });
+
+  it("keeps a pinned Pi session directory to a single home", async () => {
+    const primary = await makeHome(), wsl = await makeHome();
+    const pinned = path.join(primary, "custom");
+    await writeJsonl(path.join(pinned, "a.jsonl"), piSession("pi-1", 100, 20));
+    await writeJsonl(path.join(wsl, ".pi/agent/sessions/b.jsonl"), piSession("pi-2", 50, 10));
+    const scanner = new JsonSessionUsageScanner("pi", {
+      homeDirectory: primary, environment: { USAGEATLAS_WSL_HOMES: wsl, PI_CODING_AGENT_SESSION_DIR: pinned }
+    });
+    const result = await scanner.scan(context());
+    expect(result.status).toBe("available");
+    expect(result.totals).toMatchObject({ inputTokens: 100, requests: 1 });
   });
 });

@@ -40,15 +40,22 @@ installed WSL distributions, so agents run with `codex`, `claude`, `opencode`,
 or `pi` inside WSL count alongside their Windows runs. Distribution homes are
 discovered from the `\\wsl$\` share (`\\wsl.localhost` as fallback) and merged
 with the Windows home; a session copied into both homes counts once. The
-Claude sign-in falls back to WSL homes the same way.
+Claude sign-in falls back to WSL homes the same way. Discovery is bounded
+(16 distributions, 16 users each, 32 homes) and cached for the process
+lifetime, so restart the app after installing or removing a distribution.
+An explicitly pinned session directory (`PI_CODING_AGENT_SESSION_DIR`,
+`MUSE_SESSIONS_DIR`, `CLAUDE_CONFIG_DIR`) keeps its exact single-location
+behavior and never fans out.
 
-- `USAGEATLAS_WSL_HOMES` pins the extra homes explicitly (separated like
-  `PATH`, e.g. `\\wsl$\Ubuntu\home\alice`). Useful for custom setups and for
-  testing on other platforms.
-- `USAGEATLAS_DISABLE_WSL=1` scans only the Windows home.
+- `USAGEATLAS_WSL_HOMES` pins the extra homes explicitly, separated like
+  `PATH` (`;` on Windows, e.g. `\\wsl$\Ubuntu\home\alice`). Useful for custom
+  setups and for testing on other platforms.
+- `USAGEATLAS_DISABLE_WSL=1` (also `true`/`yes`) scans only the Windows home
+  and wins over the pinned list.
 
-Cursor and live quota APIs are unchanged: Cursor's state database and the
-`codex app-server` quota check already run on the Windows side.
+This PR leaves Cursor and live quota APIs untouched: Cursor's state database
+and the `codex app-server` quota check already resolve on the Windows side,
+so no WSL handling was added for them.
 
 ### Antigravity
 

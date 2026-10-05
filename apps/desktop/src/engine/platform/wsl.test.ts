@@ -50,11 +50,15 @@ describe("WSL home discovery", () => {
     ]);
   });
 
-  it("falls back to the localhost UNC root when the classic one is missing", async () => {
+  it("falls through to the next UNC root when the first has no usable homes", async () => {
     const homes = await listWslHomes({
       platform: "win32",
       environment: {},
-      readdir: fakeReaddir({ "\\\\wsl.localhost": [dir("Ubuntu")], "\\\\wsl.localhost\\Ubuntu\\home": [dir("alice")] })
+      readdir: fakeReaddir({
+        "\\\\wsl$": [file("stray")],
+        "\\\\wsl.localhost": [dir("Ubuntu")],
+        "\\\\wsl.localhost\\Ubuntu\\home": [dir("alice")]
+      })
     });
     expect(homes).toEqual(["\\\\wsl.localhost\\Ubuntu\\home\\alice"]);
   });
@@ -67,13 +71,15 @@ describe("WSL home discovery", () => {
     })).toEqual([]);
   });
 
-  it("bounds runaway distributions and users", async () => {
+  it("bounds runaway distributions and users at exactly 32 homes", async () => {
     const distros = Array.from({ length: 20 }, (_, index) => dir(`distro-${index}`));
     const users = Array.from({ length: 20 }, (_, index) => dir(`user-${index}`));
     const tree: Record<string, Entry[]> = { "\\\\wsl$": distros };
     for (const distro of distros) tree[`\\\\wsl$\\${distro.name}\\home`] = users;
     const homes = await listWslHomes({ platform: "win32", environment: {}, readdir: fakeReaddir(tree) });
-    expect(homes.length).toBeLessThanOrEqual(32);
+    expect(homes).toHaveLength(32);
+    expect(homes[0]).toBe("\\\\wsl$\\distro-0\\home\\user-0");
+    expect(homes[31]).toBe("\\\\wsl$\\distro-1\\home\\user-15");
   });
 
   it("honors an explicit home list on any platform", async () => {

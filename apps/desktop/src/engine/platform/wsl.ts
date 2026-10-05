@@ -24,23 +24,19 @@ function disabledBy(environment: NodeJS.ProcessEnv): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
-function explicitHomes(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] | null {
+function explicitHomes(environment: NodeJS.ProcessEnv): string[] | null {
   const raw = environment.USAGEATLAS_WSL_HOMES;
   if (raw === undefined) return null;
   return dedupeHomes(
-    raw.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean).map((entry) => path.normalize(entry)),
-    platform
+    raw.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean).map((entry) => path.normalize(entry))
   );
 }
 
-function dedupeHomes(paths: string[], platform: NodeJS.Platform): string[] {
-  const seen = new Set<string>();
-  return paths.filter((candidate) => {
-    const key = platform === "win32" ? candidate.toLowerCase() : candidate;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+function dedupeHomes(paths: string[]): string[] {
+  // Exact match only: WSL distro/user names live on case-sensitive Linux
+  // filesystems. A case-only duplicate just rescans the same files, which the
+  // downstream event-key dedup already collapses.
+  return [...new Set(paths)];
 }
 
 /**
@@ -50,22 +46,28 @@ function dedupeHomes(paths: string[], platform: NodeJS.Platform): string[] {
  * their sessions live under `\\wsl$\<distro>\home\<user>` instead of the
  * Windows home. Auto-detection runs on Windows only and never throws: when
  * WSL is absent or unreadable the result is empty and the Windows home scan
- * is unaffected. `USAGEATLAS_WSL_HOMES` (delimited like `PATH`) pins the list
- * explicitly on any platform; `USAGEATLAS_DISABLE_WSL=1` opts out.
+ * is unaffected. At most 16 distributions, 16 users per distribution, and 32
+ * homes overall are returned; the first UNC root with usable homes wins.
+ * Successful filesystem results are cached for the process lifetime, so
+ * installing or removing a distribution mid-session needs an app restart
+ * (or a pinned `USAGEATLAS_WSL_HOMES`). `USAGEATLAS_WSL_HOMES` (delimited
+ * like `PATH`) pins the list explicitly on any platform;
+ * `USAGEATLAS_DISABLE_WSL=1` (also `true`/`yes`) opts out and wins over
+ * the pinned list.
  */
 export async function listWslHomes(options: WslHomeOptions = {}): Promise<string[]> {
   const environment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
   if (disabledBy(environment)) return [];
-  const explicit = explicitHomes(environment, platform);
+  const explicit = explicitHomes(environment);
   if (explicit !== null) return explicit;
   if (platform !== "win32") return [];
   // Injected directory readers belong to tests; only cache real filesystem results.
-  if (options.readdir) return discoverWslHomes(platform, options.readdir);
+  if (options.readdir) return discoverWslHomes(options.readdir);
   const key = `${platform}|${environment.USAGEATLAS_DISABLE_WSL ?? ""}`;
   const cached = cache.get(key);
   if (cached) return cached;
-  const pending = discoverWslHomes(platform, (directory) => fsReaddir(directory, { withFileTypes: true }));
+  const pending = discoverWslHomes((directory) => fsReaddir(directory, { withFileTypes: true }));
   cache.set(key, pending);
   pending.catch(() => {
     if (cache.get(key) === pending) cache.delete(key);
@@ -78,11 +80,10 @@ export async function resolveScanHomes(homeDirectory: string, options: WslHomeOp
   const environment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
   const extra = await listWslHomes({ environment, platform, readdir: options.readdir });
-  return dedupeHomes([homeDirectory, ...extra], platform);
+  return dedupeHomes([homeDirectory, ...extra]);
 }
 
 async function discoverWslHomes(
-  platform: NodeJS.Platform,
   readdir: (directory: string) => Promise<Array<{ name: string; isDirectory(): boolean }>>
 ): Promise<string[]> {
   for (const unc of UNC_ROOTS) {
@@ -114,7 +115,9 @@ async function discoverWslHomes(
         // Distributions without a readable root home add nothing.
       }
     }
-    return dedupeHomes(homes.slice(0, MAX_HOMES), platform);
+    // A readable share with no usable homes may just be the wrong alias;
+    // fall through to the next UNC root before giving up.
+    if (homes.length > 0) return dedupeHomes(homes.slice(0, MAX_HOMES));
   }
   return [];
 }

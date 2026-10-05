@@ -184,13 +184,18 @@ export class OpenCodeUsageScanner {
       }
     }
     const parsed = { records, partial };
+    if (parsed.records.length > this.maxRecords) {
+      // Each database is already capped; the merge across homes is capped too.
+      parsed.records.length = this.maxRecords;
+      parsed.partial = true;
+    }
     const hasGoPlan = hasGoAuth || parsed.records.some((record) => record.serviceTier === "opencode-go");
     return {
       analytics: buildAnalytics(
         parsed.records,
         context.now,
         historyDays,
-        1,
+        databases.length,
         parsed.partial,
         "local_sessions",
         undefined,

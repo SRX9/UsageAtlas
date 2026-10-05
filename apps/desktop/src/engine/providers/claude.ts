@@ -134,7 +134,9 @@ async function claudeCredential(
   if (environmentToken) return { accessToken: environmentToken, plan: null };
   // Claude often runs inside WSL while UsageAtlas runs on Windows, so the
   // sign-in can live in a distribution home instead of the Windows home.
-  const homes = await resolveScanHomes(homeDirectory ?? homedir(), { environment });
+  // A pinned config dir names one exact file; read it once instead of per home.
+  const primary = homeDirectory ?? homedir();
+  const homes = environment.CLAUDE_CONFIG_DIR?.trim() ? [primary] : await resolveScanHomes(primary, { environment });
   let lastError: unknown = null;
   for (const home of homes) {
     try {
