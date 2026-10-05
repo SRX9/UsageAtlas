@@ -10,6 +10,7 @@ import {
   type SqliteRow
 } from "../platform/sqlite";
 import { usageWindow } from "../providers/shared";
+import { resolveScanHomes } from "../platform/wsl";
 import { buildAnalytics, type UsageRecord } from "./local-usage";
 
 export interface OpenCodeUsageScannerOptions {
@@ -126,40 +127,75 @@ function stepPartSql(scope: string): string {
 }
 
 export class OpenCodeUsageScanner {
-  private readonly locations: OpenCodeLocations;
+  private readonly environment: NodeJS.ProcessEnv;
+  private readonly homeDirectory: string;
   private readonly sqliteFactory: ReadonlySqliteFactory;
   private readonly historyDays: number;
   private readonly maxRecords: number;
 
   constructor(options: OpenCodeUsageScannerOptions = {}) {
-    this.locations = openCodeLocations(options);
+    this.environment = options.environment ?? process.env;
+    this.homeDirectory = options.homeDirectory ?? homedir();
     this.sqliteFactory = options.sqliteFactory ?? new NodeReadonlySqliteFactory();
     this.historyDays = clampInteger(options.historyDays ?? DEFAULT_HISTORY_DAYS, 1, 366);
     this.maxRecords = clampInteger(options.maxRecords ?? DEFAULT_MAX_RECORDS, 1, 250_000);
   }
 
+  /** Every OpenCode data root: the primary home plus readable WSL homes. */
+  private async allLocations(): Promise<OpenCodeLocations[]> {
+    const homes = await resolveScanHomes(this.homeDirectory, { environment: this.environment });
+    const locations = homes.map((home) => openCodeLocations({ environment: this.environment, homeDirectory: home }));
+    return [...new Map(locations.map((locations) => [locations.root, locations])).values()];
+  }
+
   async isAvailable(): Promise<boolean> {
-    return await fileExists(this.locations.database) || await fileExists(this.locations.auth);
+    for (const locations of await this.allLocations()) {
+      if (await fileExists(locations.database) || await fileExists(locations.auth)) return true;
+    }
+    return false;
   }
 
   async scan(context: { signal: AbortSignal; now: Date; historyDays?: number; timeZone?: string }): Promise<OpenCodeUsageSnapshot> {
     context.signal.throwIfAborted();
-    if (!await fileExists(this.locations.database)) {
+    const databases: OpenCodeLocations[] = [];
+    let hasGoAuth = false;
+    for (const locations of await this.allLocations()) {
+      hasGoAuth ||= await hasOpenCodeGoAuth(locations.auth);
+      if (await fileExists(locations.database)) databases.push(locations);
+    }
+    if (databases.length === 0) {
       throw new ProviderError(
         "credentials_missing",
         "OpenCode local data was not found. Run OpenCode once, then refresh."
       );
     }
     const historyDays = clampInteger(context.historyDays ?? this.historyDays, 1, 366);
-    const parsed = this.readRecords(context.signal);
-    const hasGoAuth = await hasOpenCodeGoAuth(this.locations.auth);
+    const seen = new Set<string>();
+    const records: UsageRecord[] = [];
+    let partial = false;
+    for (const locations of databases) {
+      const parsed = this.readRecords(locations, context.signal);
+      partial ||= parsed.partial;
+      // Homes can share a database through a mount; one event counts once.
+      for (const record of parsed.records) {
+        if (seen.has(record.eventKey)) continue;
+        seen.add(record.eventKey);
+        records.push(record);
+      }
+    }
+    const parsed = { records, partial };
+    if (parsed.records.length > this.maxRecords) {
+      // Each database is already capped; the merge across homes is capped too.
+      parsed.records.length = this.maxRecords;
+      parsed.partial = true;
+    }
     const hasGoPlan = hasGoAuth || parsed.records.some((record) => record.serviceTier === "opencode-go");
     return {
       analytics: buildAnalytics(
         parsed.records,
         context.now,
         historyDays,
-        1,
+        databases.length,
         parsed.partial,
         "local_sessions",
         undefined,
@@ -171,10 +207,10 @@ export class OpenCodeUsageScanner {
     };
   }
 
-  private readRecords(signal: AbortSignal): { records: UsageRecord[]; partial: boolean } {
+  private readRecords(locations: OpenCodeLocations, signal: AbortSignal): { records: UsageRecord[]; partial: boolean } {
     let database: ReadonlySqliteDatabase | undefined;
     try {
-      database = this.sqliteFactory.open(this.locations.database);
+      database = this.sqliteFactory.open(locations.database);
       const tables = new Set(database.all(
         "SELECT name FROM sqlite_master WHERE type = 'table'"
       ).map((row) => text(row.name)).filter((name): name is string => name !== null));
