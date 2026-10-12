@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { visit } from "jsonc-parser";
 import { emptyPricingCatalog, type PricingCatalog } from "./models-dev";
+import { resolveScanHomes } from "../platform/wsl";
 import {
   estimateClaudeCost,
   estimateCodexCost,
@@ -140,7 +141,8 @@ export class LocalUsageScanner implements AnalyticsScanner {
       this.cache.clear();
       this.catalogRevision = catalog.revision;
     }
-    const roots = localUsageRoots(provider, this.environment, this.homeDirectory);
+    const homes = await resolveScanHomes(this.homeDirectory, { environment: this.environment });
+    const roots = [...new Set(homes.flatMap((home) => localUsageRoots(provider, this.environment, home)))];
     const discovery = await discoverJsonlFiles(roots, this.maxFiles, context.signal);
     const activeFiles = new Set(discovery.files);
     for (const cachedPath of this.cache.keys()) {
