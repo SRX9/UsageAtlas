@@ -1,7 +1,11 @@
 import type { DashboardProvider } from "@usageatlas/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { DesktopPreferences } from "../../shared/desktop-api";
+import {
+  DEFAULT_ADVANCED_PREFERENCES,
+  DEFAULT_WIDGET_PREFERENCES,
+  type DesktopPreferences
+} from "../../shared/desktop-api";
 import { Settings } from "./Settings";
 
 describe("Settings sources", () => {
@@ -35,7 +39,42 @@ describe("Settings sources", () => {
   });
 });
 
+describe("Settings updates", () => {
+  it("offers both publishers to update from and names the selected one", () => {
+    const html = render([]);
+
+    expect(html).toContain("Updates from");
+    expect(html).toContain("Unofficial fork");
+    expect(html).toContain("Official app");
+    expect(html).toContain("github.com/Artleboss2/UsageAtlas-Unofficial");
+  });
+});
+
 describe("Settings appearance", () => {
+  it("offers the bundled fonts and application marks", () => {
+    const html = render([]);
+
+    expect(html).toContain("Manrope");
+    expect(html).toContain("Figtree");
+    expect(html).toContain("Geist");
+    expect(html).toContain("Datamosh");
+    expect(html).toContain("Classic");
+    expect(html).toContain("Duotone");
+    expect(html).toContain("Interface text size");
+    expect(html).toContain("Text colour");
+  });
+
+  it("offers full figures, an accent tint, solid surfaces and a motion switch", () => {
+    const html = render([]);
+
+    expect(html).toContain("Every digit");
+    expect(html).toContain("Short units");
+    expect(html).toContain("Accent colour");
+    expect(html).toContain("Glass");
+    expect(html).toContain("Solid");
+    expect(html).toContain("Animate the interface");
+  });
+
   it("offers Mist, Valley, Night, Monterey, and Big Sur as background choices", () => {
     const html = render([]);
 
@@ -65,6 +104,14 @@ function render(providers: DashboardProvider[]): string {
       onRefresh={vi.fn()}
       onSetProviderEnabled={vi.fn()}
       onUpdate={vi.fn()}
+      onShowWidget={vi.fn()}
+      onHideWidget={vi.fn()}
+      onExportSettings={vi.fn()}
+      onImportSettings={vi.fn()}
+      onChooseFolder={vi.fn()}
+      onChooseExportDirectory={vi.fn()}
+      onExportUsage={vi.fn()}
+      onRestartApp={vi.fn()}
       preferences={preferences()}
       providerSaving={null}
       providers={providers}
@@ -92,6 +139,25 @@ function provider(overrides: Partial<DashboardProvider> = {}): DashboardProvider
 
 function preferences(): DesktopPreferences {
   return {
+    appearance: {
+      theme: "system",
+      font: "system",
+      fontScale: 1,
+      textColor: null,
+      mark: "datamosh",
+      numberStyle: "exact",
+      accent: "system",
+      surface: "glass",
+      animate: true,
+      density: "comfortable",
+      windowOpacity: 1,
+      blur: 18,
+      providerColors: {}
+    },
+    tokenAlerts: { enabled: true, thresholdTokens: 100_000 },
+    language: "system",
+    updateChannel: "fork",
+    updateRepository: "",
     backgroundImage: "mist",
     customBackgroundName: null,
     launchAtLogin: false,
@@ -100,6 +166,13 @@ function preferences(): DesktopPreferences {
     providerEnabled: {},
     limitOrder: [],
     trayLimits: {},
-    usageAlerts: {}
+    usageAlerts: {},
+    reportPlans: [],
+    startMinimized: false,
+    hotkey: "CommandOrControl+Shift+U",
+    pricingSyncHours: 24,
+    powerSaving: true,
+    widget: { ...DEFAULT_WIDGET_PREFERENCES },
+    advanced: { ...DEFAULT_ADVANCED_PREFERENCES }
   };
 }

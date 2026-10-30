@@ -45,11 +45,21 @@ export function openWritableSqlite(databasePath: string): WritableSqliteDatabase
   let closed = false;
   // Durable batch commits and checkpoints run on a separate connection so a
   // slow disk flush cannot block the engine. Small summary writes stay synchronous.
-  const writer = databasePath === ":memory:" ? null : createSqliteWriter(databasePath, () => {
-    if (!closed) database.exec("PRAGMA wal_autocheckpoint = 0");
-  }, () => {
-    if (!closed) database.exec("PRAGMA wal_autocheckpoint = 1000");
-  });
+  // The connection is opened on the first batch: it holds a read lock of its own,
+  // and the one-time `VACUUM` a store runs while opening needs the file to itself.
+  let writer: ReturnType<typeof createSqliteWriter> = null;
+  let writerRefused = false;
+  const openWriter = (): ReturnType<typeof createSqliteWriter> => {
+    if (writer || writerRefused || databasePath === ":memory:") return writer;
+    writer = createSqliteWriter(databasePath, () => {
+      if (!closed) database.exec("PRAGMA wal_autocheckpoint = 0");
+    }, () => {
+      writerRefused = true;
+      if (!closed) database.exec("PRAGMA wal_autocheckpoint = 1000");
+    });
+    if (!writer) writerRefused = true;
+    return writer;
+  };
   // Keep up to 64 MiB of pages while filling the indexed observation ledger.
   // Collection inserts tens of thousands of rows with the same statements.
   // Recompiling each query also repeatedly reparses the schema and its indexes.
@@ -74,7 +84,8 @@ export function openWritableSqlite(databasePath: string): WritableSqliteDatabase
     exec: (sql) => database.exec(sql),
     commit: async operations => {
       if (closed) throw new Error("History database is closed.");
-      if (writer) return writer.commit(operations);
+      const active = openWriter();
+      if (active) return active.commit(operations);
       database.exec("BEGIN IMMEDIATE");
       try {
         for (const operation of operations) prepare(operation.sql).run(...operation.parameters);

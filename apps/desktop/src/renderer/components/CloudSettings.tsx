@@ -53,6 +53,10 @@ export function CloudSettings(): React.JSX.Element {
     }
   }
   const visibleError = error || status?.error || loadError;
+  const heldBack = (status?.heldBack ?? []).map(sourceLabel);
+  // `pending` counts every local observation; the ones behind `heldBack` cannot
+  // be uploaded until a rule names an official provider for them.
+  const waiting = Math.max(0, (status?.pending ?? 0) - (status?.heldBackCount ?? 0));
   const busy = working || Boolean(status?.busy);
   const operation = action === "save" || action === "restore" ? action : status?.progress?.operation;
   const saving = busy && operation === "save";
@@ -68,16 +72,19 @@ export function CloudSettings(): React.JSX.Element {
         ? "Your local history is safe. Try again when you're ready."
         : status?.conflicts.length
           ? "Choose which version to keep below to finish saving."
-          : status?.pending
-            ? `${status.lastCompleted === "save" ? "Saved to cloud. " : status.lastCompleted === "restore" ? "History restored. " : ""}${status.pending} ${status.pending === 1 ? "change waiting" : "changes waiting"} to be saved.`
-            : status?.lastCompleted === "restore" ? "History restored." : "All changes saved to cloud.";
+          : waiting
+            ? `${status?.lastCompleted === "save" ? "Saved to cloud. " : status?.lastCompleted === "restore" ? "History restored. " : ""}${waiting} ${waiting === 1 ? "change waiting" : "changes waiting"} to be saved.`
+            : status?.heldBackCount
+              ? "Everything the server accepts is saved to cloud."
+              : status?.lastCompleted === "restore" ? "History restored." : "All changes saved to cloud.";
   return (
     <Card variant="transparent">
       <Card.Header>
         <Card.Title>Cloud save</Card.Title>
         <Card.Description>
           No account is needed to track usage. Create a free account to save
-          your usage history and restore it on another computer.
+          your usage history and restore it on another computer. A source without
+          its own attribution rule is saved through your first reporting mix.
         </Card.Description>
       </Card.Header>
       <Card.Content className="mt-2 space-y-4">
@@ -102,7 +109,8 @@ export function CloudSettings(): React.JSX.Element {
                   Save automatically
                 </strong>
                 <p className="mt-1 text-xs text-muted">
-                  Save pending usage once an hour while the app is running.
+                  Save pending usage once an hour while the app is running. Save to cloud
+                  sends it right away.
                 </p>
               </div>
               <Switch
@@ -121,7 +129,7 @@ export function CloudSettings(): React.JSX.Element {
             <div className="flex flex-wrap gap-3">
               <Button
                 isPending={saving}
-                isDisabled={busy || status.pending === 0}
+                isDisabled={busy || waiting === 0}
                 onPress={() => void act("save")}
               >
                 {saving && <CloudSpinner />}
@@ -150,6 +158,16 @@ export function CloudSettings(): React.JSX.Element {
               <p>{message}</p>
               {(saving || restoring) && (
                 <p>This may take a minute or two. You can keep using UsageAtlas.</p>
+              )}
+              {heldBack.length > 0 && (
+                <p>
+                  {status.heldBackCount > 0
+                    ? `${status.heldBackCount.toLocaleString()} ${status.heldBackCount === 1 ? "change" : "changes"} from `
+                    : ""}
+                  {heldBack.join(", ")} {heldBack.length === 1 ? "stays" : "stay"} on this
+                  computer: the server does not model {heldBack.length === 1 ? "that source" : "those sources"} yet,
+                  and no reporting mix exists to relabel them. Add a first rule on the Attribution page.
+                </p>
               )}
             </div>
             {status.conflicts.map((conflict) => (
@@ -259,6 +277,11 @@ export function CloudSettings(): React.JSX.Element {
       </Card.Content>
     </Card>
   );
+}
+
+/** The engine reports source ids; the settings page shows them as names. */
+function sourceLabel(id: string): string {
+  return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
 function CloudSpinner(): React.JSX.Element {

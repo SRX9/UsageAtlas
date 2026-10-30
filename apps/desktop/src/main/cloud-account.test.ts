@@ -54,7 +54,7 @@ beforeEach(() => {
   engineAccountId = null;
   cloud = vi.fn(async (params: { operation: string; accountId?: string }) => {
     if (params.operation === "configure") engineAccountId = params.accountId || null;
-    return { accountId: engineAccountId, automatic: false, pending: 0, conflicts: [], busy: false, progress: null, lastCompleted: null, error: null };
+    return { accountId: engineAccountId, automatic: false, pending: 0, heldBack: [], heldBackCount: 0, conflicts: [], busy: false, progress: null, lastCompleted: null, error: null };
   });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);

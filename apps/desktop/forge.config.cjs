@@ -11,11 +11,17 @@ const { MakerZIP } = require("@electron-forge/maker-zip");
 const { MakerAppImage } = require("@reforged/maker-appimage");
 
 const resources = path.join(__dirname, "resources");
+// Electron ships a `locales` pak for every language it knows (47 MB in 0.4.0).
+// The interface is translated into five, so the rest is dead weight in every
+// installer and portable archive. `en-US` must survive: Chromium loads it as the
+// fallback whenever a requested catalog is missing.
+const KEPT_ELECTRON_LOCALES = new Set(["en-US", "fr", "es", "zh-CN", "hi"]);
 // Every file in `icons` ships twice: `extraResource` copies the directory into
 // the packaged app and the renderer serves it as its Vite `publicDir`. Only the
 // PNG and the ICO are read at runtime, so build-only artwork lives in
 // `installer` alongside the DMG background instead.
 const iconDirectory = path.join(resources, "icons");
+const windowsDirectory = path.join(resources, "windows");
 const installerDirectory = path.join(resources, "installer");
 const macIcon = path.join(installerDirectory, "usageatlas.icns");
 const platformIcon = process.platform === "win32"
@@ -59,6 +65,15 @@ class CurrentFusesPlugin extends PluginBase {
           resetAdHocDarwinSignature: applePlatform && arch === "arm64" && !osxSign,
           ...this.config
         });
+        const locales = path.join(basePath, "locales");
+        try {
+          for (const file of fs.readdirSync(locales)) {
+            if (file.endsWith(".pak") && !KEPT_ELECTRON_LOCALES.has(file.slice(0, -4)))
+              fs.rmSync(path.join(locales, file));
+          }
+        } catch {
+          // A platform layout without a locales folder keeps all of them.
+        }
       }
     };
   }
@@ -82,7 +97,7 @@ module.exports = {
     appCategoryType: "public.app-category.developer-tools",
     appCopyright: "Copyright UsageAtlas contributors",
     executableName: "UsageAtlas",
-    extraResource: [iconDirectory],
+    extraResource: [iconDirectory, windowsDirectory],
     icon: platformIcon,
     name: "UsageAtlas",
     osxSign,
@@ -99,11 +114,14 @@ module.exports = {
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
+      // The product name stays "UsageAtlas": the installed app, its data folder and
+      // the Squirrel app id are what make updates land on an existing install.
       name: "UsageAtlas",
-      authors: "UsageAtlas contributors",
-      description: "Cross-platform AI provider usage dashboard",
+      authors: "UsageAtlas Unofficial fork contributors",
+      description: "Cross-platform AI provider usage dashboard (unofficial fork)",
       setupIcon: path.join(iconDirectory, "usageatlas.ico"),
-      iconUrl: "https://usageatlas.com/icon.ico",
+      // Served from this fork's own repository rather than the original project's site.
+      iconUrl: "https://raw.githubusercontent.com/Artleboss2/UsageAtlas-Unofficial/main/apps/desktop/resources/icons/usageatlas.ico",
       windowsSign
     }),
     new MakerZIP({}, ["darwin", "win32"]),
@@ -132,7 +150,7 @@ module.exports = {
         bin: "UsageAtlas",
         genericName: "AI usage dashboard",
         categories: ["Utility", "Development"],
-        homepage: "https://usageatlas.com",
+        homepage: "https://github.com/Artleboss2/UsageAtlas-Unofficial",
         license: "MIT",
         icon: path.join(iconDirectory, "usageatlas.png")
       }
@@ -143,8 +161,8 @@ module.exports = {
         bin: "UsageAtlas",
         genericName: "AI usage dashboard",
         categories: ["Utility", "Development"],
-        maintainer: "UsageAtlas contributors",
-        homepage: "https://usageatlas.com",
+        maintainer: "UsageAtlas Unofficial fork contributors",
+        homepage: "https://github.com/Artleboss2/UsageAtlas-Unofficial",
         icon: path.join(iconDirectory, "usageatlas.png")
       }
     })

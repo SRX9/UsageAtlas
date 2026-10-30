@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildAnalytics, type UsageRecord } from "../analytics/local-usage";
 import { openWritableSqlite } from "../platform/sqlite";
 import { UsageStore } from "./usage-store";
 import { UsageSync, type UsageCloud } from "./usage-sync";
+import { applyTargetToRecord } from "../../shared/report-plans";
 import { sameUsage, validateUsageRecord, type UsageDay, type CloudRecord } from "@usageatlas/contracts/usage";
 import fixtures from "@usageatlas/contracts/fixtures/usage-record-v1.json";
 
@@ -59,8 +61,36 @@ function sync(local: UsageStore) {
   resources.push(() => service.close());
   return service;
 }
+const observedAt = new Date("2026-09-23T12:00:00Z");
+function usageEvent(overrides: Partial<UsageRecord> = {}): UsageRecord {
+  return {
+    timestamp: "2026-09-23T02:00:00Z", day: "2026-09-23", model: "deepseek-v4-flash", modelProvider: "deepseek",
+    sessionID: "session-1", projectPath: "C:/work/project", projectLabel: "project", serviceTier: "sponsored",
+    inputTokens: 40, cachedInputTokens: 10, cacheCreationInputTokens: 0, outputTokens: 25, totalTokens: 75,
+    estimatedCostUSD: 0.001, eventKey: "source-1", ...overrides
+  };
+}
+function analytics(records: UsageRecord[] = [usageEvent()]) {
+  return buildAnalytics(records, observedAt, 90, 1, false, "local_sessions", undefined, undefined, "UTC");
+}
 
 describe("usage cloud storage", () => {
+  it("keeps a relabelled upload valid for the same cloud contract", () => {
+    const record = day(321);
+    record.models = [{ modelKey: "glm-4.6", totals: record.totals! }];
+    const rewritten = applyTargetToRecord(record, {
+      reportAs: "codex",
+      model: "gpt-5.3-codex",
+      weight: 100
+    });
+    const validated = validateUsageRecord(rewritten) as UsageDay;
+
+    expect(validated.providerId).toBe("codex");
+    expect(validated.models).toEqual([{ modelKey: "gpt-5.3-codex", totals: record.totals }]);
+    expect(validated.recordId).toBe(record.recordId);
+    expect(validated.totals).toEqual(record.totals);
+  });
+
   it("stops requesting more cloud pages when the account is disconnected", async () => {
     const local = store();
     const cloud = remoteCloud();
@@ -77,7 +107,58 @@ describe("usage cloud storage", () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(service.status()).toMatchObject({ accountId: null, busy: false, automatic: false, lastCompleted: null });
   });
-  it("restores over a corrupt payload and keeps damaged conflicts out of status", async () => {
+  it("uploads every pending record in one save, past the batch size", async () => {
+    const local = store();
+    local.selectAccount("a");
+    for (let index = 0; index < 120; index += 1) {
+      const record = day(100 + index);
+      local.put({
+        ...record,
+        recordId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
+      });
+    }
+    const cloud = remoteCloud();
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    await service.save();
+    expect(local.pending()).toEqual([]);
+    expect(cloud.rows.size).toBe(120);
+  });
+
+  it("drains every observation when the server accepts only 40 per request", async () => {
+    const local = store();
+    local.selectAccount("a");
+    const start = new Date("2026-07-01T02:00:00Z");
+    const events = Array.from({ length: 50 }, (_, index) => {
+      const at = new Date(start.getTime() + index * 86_400_000).toISOString();
+      return usageEvent({
+        day: at.slice(0, 10),
+        timestamp: at,
+        eventKey: `source-${index}`,
+        sessionID: `session-${index}`
+      });
+    });
+    local.statistics.collect("codex", "local", "replica", analytics(events));
+    expect(local.statistics.pendingCount()).toBeGreaterThan(40);
+
+    const cloud = remoteCloud();
+    let requests = 0;
+    cloud.saveFacts = async facts => {
+      requests += 1;
+      // What the hosted service does: store and acknowledge the first 40.
+      return facts.slice(0, 40).map(fact => fact.id);
+    };
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    await service.save();
+
+    expect(local.statistics.pendingCount()).toBe(0);
+    expect(requests).toBeGreaterThan(1);
+  });
+
+  it("restores over a corrupt payload and drops a damaged conflict instead of blocking the record", async () => {
     const local = store();
     local.selectAccount("a");
     local.put(day());
@@ -91,8 +172,9 @@ describe("usage cloud storage", () => {
     expect(local.get(day().recordId)?.record).toMatchObject({ totals: { totalTokens: 200 } });
     local.put(day(300));
     local.db.run("UPDATE usage_record SET conflict = '{not-json' WHERE id = ?", [day().recordId]);
-    expect(service.status()).toMatchObject({ conflicts: [], pending: 1 });
-    expect(service.status().error).toContain("1 invalid local usage record was skipped");
+    // The unreadable cloud copy is dropped: it offered a choice, not usage.
+    expect(service.status()).toMatchObject({ conflicts: [], pending: 1, error: null });
+    expect(local.get(day().recordId)?.conflict).toBeNull();
     const healthy = { ...day(), recordId: "ffffffff-ffff-4fff-8fff-ffffffffffff", localDay: "2026-09-06" };
     local.put(healthy);
     await service.save();
@@ -335,6 +417,96 @@ describe("usage cloud storage", () => {
     expect(local.pending()[0].record).toMatchObject({ totals: { totalTokens: 200 } });
     expect(local.pending()[0].revision).toBe(1);
   });
+
+
+  it("holds back a source the server does not model instead of failing the save", async () => {
+    const local = store();
+    local.statistics.collect("freebuff", "local", "replica", analytics());
+    const own = day();
+    own.providerId = "codex";
+    local.put(own);
+    const cloud = remoteCloud();
+    const facts: string[] = [];
+    cloud.saveFacts = async values => {
+      for (const fact of values) facts.push(fact.providerId);
+      return values.map(fact => fact.id);
+    };
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    await service.save();
+    // Codex usage is saved; Freebuff's stays here under its own name.
+    expect(cloud.rows.size).toBe(1);
+    expect(facts).toEqual([]);
+    expect(service.status().error).toBeNull();
+    expect(service.status().heldBack).toEqual(["freebuff"]);
+    expect(local.statistics.pendingCount()).toBe(2);
+    // The unsaved observations are reported apart from the counter, so a source
+    // the server does not model never reads as a save that keeps failing.
+    expect(service.status().pending).toBe(2);
+    expect(service.status().heldBackCount).toBe(2);
+  });
+
+  it("reports a source without its own rule through the first saved mix", async () => {
+    const local = store();
+    local.statistics.collect("freebuff", "local", "replica", analytics());
+    const own = day();
+    own.providerId = "codex";
+    local.put(own);
+    const cloud = remoteCloud();
+    const facts: { providerId: string; modelKey?: string }[] = [];
+    cloud.saveFacts = async values => {
+      for (const fact of values) facts.push({
+        providerId: fact.providerId,
+        modelKey: fact.kind === "usage_event" ? fact.modelKey : undefined
+      });
+      return values.map(fact => fact.id);
+    };
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    service.setReportPlans([{
+      source: "codex",
+      targets: [{ reportAs: "claude", model: "claude-opus-5", weight: 100 }]
+    }]);
+    await service.save();
+
+    // Freebuff has no rule of its own; it follows Codex's first mix instead of
+    // waiting for a provider the server validates by name.
+    expect(facts.every(fact => fact.providerId === "claude")).toBe(true);
+    expect(facts.every(fact => fact.modelKey === undefined || fact.modelKey === "claude-opus-5")).toBe(true);
+    expect(cloud.rows.size).toBe(1);
+    expect(service.status().heldBack).toEqual([]);
+    expect(service.status().heldBackCount).toBe(0);
+    expect(local.statistics.pendingCount()).toBe(0);
+    expect(local.pendingCount(["codex", "freebuff"])).toBe(0);
+  });
+
+  it("keeps the automatic timer idle while only unmapped sources are pending", async () => {
+    vi.useFakeTimers();
+    const local = store();
+    local.statistics.collect("freebuff", "local", "replica", analytics());
+    const cloud = remoteCloud();
+    const saveFacts = vi.fn(async (facts: { id: string }[]) => facts.map(fact => fact.id));
+    cloud.saveFacts = saveFacts;
+    const service = sync(local);
+    await service.configure("a", cloud);
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(saveFacts).not.toHaveBeenCalled();
+    expect(service.status()).toMatchObject({ pending: 2, heldBackCount: 2, busy: false });
+  });
+
+  it("inserts a record that only exists in the cloud under the provider it was stored as", async () => {
+    const local = store();
+    const foreign = { ...day(), recordId: "ffffffff-ffff-4fff-8fff-ffffffffffff", localDay: "2026-09-06" };
+    const cloud = remoteCloud();
+    cloud.rows.set(foreign.recordId, { record: foreign, revision: 2 });
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    await service.restore();
+    expect(local.get(foreign.recordId)?.record.providerId).toBe(foreign.providerId);
+  });
   it("restores without generating uploads and accepts downward corrections", () => {
     const local = store();
     local.merge({ record: day(200), revision: 1 });
@@ -469,7 +641,7 @@ describe("usage cloud storage", () => {
     await service.restore();
     expect(service.status()).toMatchObject({ busy: false, progress: null, lastCompleted: "restore" });
   });
-  it("ends a save with an error if a cloud response leaves the same record pending", async () => {
+  it("parks a record the server will not move as a conflict and completes the save", async () => {
     const local = store();
     const cloud = remoteCloud();
     const service = sync(local);
@@ -479,9 +651,28 @@ describe("usage cloud storage", () => {
     local.put(day(200));
     const save = vi.fn(async () => [{ record: day(), revision: 1, status: "conflict" as const }]);
     cloud.save = save;
-    await expect(service.save()).rejects.toThrow("Cloud save made no progress");
+    await expect(service.save()).resolves.toBeUndefined();
     expect(save).toHaveBeenCalledTimes(1);
-    expect(service.status()).toMatchObject({ busy: false, progress: null, lastCompleted: null, pending: 1 });
+    expect(local.get(day().recordId)?.conflict?.revision).toBe(1);
+    expect(local.pending()).toEqual([]);
+    expect(service.status()).toMatchObject({ busy: false, progress: null, lastCompleted: "save", error: null });
+    expect(service.status().conflicts).toHaveLength(1);
+  });
+  it("keeps an empty day on this computer instead of uploading it as saved usage", async () => {
+    const local = store();
+    local.selectAccount("a");
+    const empty = day(0);
+    empty.status = "no_data";
+    local.put(empty);
+    const cloud = remoteCloud();
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    cloud.save = vi.fn(cloud.save);
+    await service.save();
+    expect(cloud.save).not.toHaveBeenCalled();
+    expect(local.pending()).toEqual([]);
+    expect(local.get(empty.recordId)?.record).toMatchObject({ status: "no_data" });
   });
   it("clears progress after a failed request and allows a successful retry", async () => {
     const local = store();
@@ -497,6 +688,46 @@ describe("usage cloud storage", () => {
     await service.save();
     expect(service.status()).toMatchObject({ busy: false, progress: null, lastCompleted: "save", error: null });
   });
+  it("keeps every public model row on the uploaded copy", () => {
+    const record = day(300);
+    record.breakdownCoverage = { hourly: "unknown", models: "complete" };
+    record.models = [
+      { modelKey: "claude-opus-5", totals: { ...record.totals!, inputTokens: 100, totalTokens: 100, requests: 1, unpricedTokens: 100 } },
+      { modelKey: "claude-sonnet-4-6", totals: { ...record.totals!, inputTokens: 200, totalTokens: 200, requests: 0, unpricedTokens: 200 } }
+    ];
+    const uploaded = applyTargetToRecord(validateUsageRecord(record), {
+      reportAs: "claude",
+      model: "claude-opus-5",
+      weight: 100
+    }) as UsageDay;
+    // The old, complete document goes up: the server stores the model split.
+    expect(uploaded.models?.map((row) => row.modelKey)).toEqual(["claude-opus-5", "claude-sonnet-4-6"]);
+    expect(uploaded.totals).toEqual(record.totals);
+    expect(validateUsageRecord(uploaded)).toBeTruthy();
+  });
+
+  it("saves an unmapped source under the plan without touching its day", async () => {
+    const local = store();
+    local.selectAccount("a");
+    const record = day(420);
+    record.providerId = "freebuff";
+    // A private model name is exactly why the plan exists.
+    record.models = [{ modelKey: "m-094859", totals: record.totals! }];
+    local.put(record);
+    const cloud = remoteCloud();
+    const service = sync(local);
+    await service.configure("a", cloud);
+    service.setAutomatic(false);
+    service.setReportPlans([{ source: "freebuff", targets: [{ reportAs: "codex", model: "gpt-5.6-sol", weight: 100 }] }]);
+    await service.save();
+    const saved = [...cloud.rows.values()][0].record as UsageDay;
+    expect(saved.providerId).toBe("codex");
+    expect(saved.models).toEqual([{ modelKey: "gpt-5.6-sol", totals: record.totals }]);
+    expect(saved.totals).toEqual(record.totals);
+    expect(local.pending()).toEqual([]);
+    expect(local.get(record.recordId)?.record.providerId).toBe("freebuff");
+  });
+
   it("rejects private fields, invalid totals, and duplicate breakdowns", () => {
     expect(() => validateUsageRecord({ ...day(), path: "/private" })).toThrow();
     expect(() => validateUsageRecord({ ...day(), status: "no_data" })).toThrow();

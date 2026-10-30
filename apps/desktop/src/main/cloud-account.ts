@@ -71,8 +71,8 @@ export class CloudAccount {
       return {
         accountId: null, account: null, automatic: false, pending: 0,
         busy: this.error === null, progress: null, lastCompleted: null,
-        conflicts: [], loginCode: this.login?.userCode ?? null, error: this.error,
-        profile: { state: "unknown" },
+        heldBack: [], heldBackCount: 0, conflicts: [], loginCode: this.login?.userCode ?? null,
+        error: this.error, profile: { state: "unknown" },
       };
     }
     return {

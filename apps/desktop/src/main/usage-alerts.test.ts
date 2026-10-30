@@ -2,7 +2,10 @@ import type { DashboardSnapshot, DashboardWindow } from "@usageatlas/contracts";
 import type { UsageAlertPreferences } from "../shared/desktop-api";
 import { describe, expect, it } from "vitest";
 import {
+  createTokenAlertNotification,
   createUsageAlertNotification,
+  TokenAlertEvaluator,
+  tokenAlertMessage,
   USAGE_ALERT_DELIVERY_COOLDOWN_MS,
   UsageAlertDeliveryLog,
   UsageAlertEvaluator
@@ -220,6 +223,52 @@ function codexSnapshot(windows: DashboardWindow[]): DashboardSnapshot {
       analytics: null,
       error: null,
       updatedAt: "2026-07-29T12:00:00.000Z"
+    }]
+  };
+}
+
+describe("TokenAlertEvaluator", () => {
+  it("announces the exact token count once the day passes the threshold", () => {
+    const evaluator = new TokenAlertEvaluator();
+    const rule = { enabled: true, thresholdTokens: 100_000 };
+
+    expect(evaluator.evaluate(tokenSnapshot(40_000), rule, new Date("2026-10-28T09:00:00Z"))).toEqual([]);
+    const alerts = evaluator.evaluate(tokenSnapshot(128_400), rule, new Date("2026-10-28T10:00:00Z"));
+    expect(alerts).toEqual([{ providerID: "freebuff", providerName: "Freebuff", tokens: 128_400 }]);
+    expect(tokenAlertMessage("Freebuff", 128_400)).toBe("You used 128,400 tokens on Freebuff today.");
+    expect(createTokenAlertNotification(alerts[0]).body).toBe("You used 128,400 tokens on Freebuff today.");
+    // One notification per provider per day.
+    expect(evaluator.evaluate(tokenSnapshot(200_000), rule, new Date("2026-10-28T11:00:00Z"))).toEqual([]);
+    // The next local day starts fresh.
+    expect(evaluator.evaluate(tokenSnapshot(150_000), rule, new Date("2026-10-30T12:00:00Z"))).toHaveLength(1);
+  });
+
+  it("stays quiet when the switch is off or the source is disabled", () => {
+    const evaluator = new TokenAlertEvaluator();
+    expect(evaluator.evaluate(tokenSnapshot(500_000), { enabled: false, thresholdTokens: 1_000 })).toEqual([]);
+    const disabled = tokenSnapshot(500_000);
+    disabled.providers[0].enabled = false;
+    expect(evaluator.evaluate(disabled, { enabled: true, thresholdTokens: 1_000 })).toEqual([]);
+  });
+});
+
+function tokenSnapshot(tokens: number): DashboardSnapshot {
+  return {
+    schemaVersion: 2,
+    generatedAt: "2026-10-28T12:00:00.000Z",
+    staleAfterSeconds: 180,
+    host: {},
+    providers: [{
+      id: "freebuff",
+      name: "Freebuff",
+      enabled: true,
+      source: "local_sessions",
+      windows: [],
+      identity: null,
+      credits: null,
+      analytics: { today: { totalTokens: tokens } } as unknown as DashboardSnapshot["providers"][number]["analytics"],
+      error: null,
+      updatedAt: "2026-10-28T12:00:00.000Z"
     }]
   };
 }

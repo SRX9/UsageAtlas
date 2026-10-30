@@ -191,6 +191,19 @@ export function WrenchIcon(props: IconProps): React.JSX.Element {
   return <IconBase {...props}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></IconBase>;
 }
 
+export function AttributionIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect height="5" rx="1.5" width="6" x="3" y="4" />
+      <rect height="5" rx="1.5" width="6" x="15" y="15" />
+      <path d="M9 6.5h5.5A3.5 3.5 0 0 1 18 10v3.5" />
+      <path d="m16 11.5 2 2 2-2" />
+      <path d="M15 17.5H9.5A3.5 3.5 0 0 1 6 14v-3.5" />
+      <path d="m4 12.5 2-2 2 2" />
+    </IconBase>
+  );
+}
+
 export function GiftIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

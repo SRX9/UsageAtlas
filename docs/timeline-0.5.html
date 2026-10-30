@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=1600">
+    <title>UsageAtlas · 0.4 → 0.5</title>
+    <style>
+      /* Tokens copied from the app's dark surface and its violet roadmap accent. */
+      :root {
+        --background: #1c1c1e;
+        --surface: #2c2c2e;
+        --surface-secondary: #262628;
+        --foreground: #f5f5f7;
+        --muted: rgba(245, 245, 247, 0.62);
+        --separator: rgba(255, 255, 255, 0.09);
+        --success: #30d158;
+        --violet: #a78bfa;
+        --violet-soft: rgba(167, 139, 250, 0.14);
+        --radius: 20px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        width: 1600px;
+        margin: 0;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: Inter, "SF Pro Text", "Segoe UI", -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        padding: 64px 72px 56px;
+        background:
+          radial-gradient(1100px 520px at 18% -10%, rgba(167, 139, 250, 0.16), transparent 62%),
+          radial-gradient(900px 460px at 92% 0%, rgba(48, 209, 88, 0.07), transparent 60%),
+          var(--background);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 9px;
+        background: linear-gradient(150deg, #c4b5fd, #7c5cff);
+        color: #16121f;
+        font-size: 17px;
+        font-weight: 800;
+      }
+
+      .fork {
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .hero {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 40px;
+        padding-bottom: 28px;
+        border-bottom: 0.5px solid var(--separator);
+      }
+
+      h1 {
+        margin: 18px 0 8px;
+        font-size: 52px;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1.02;
+      }
+
+      .hero p {
+        max-width: 640px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      .hero-stat {
+        flex: none;
+        text-align: right;
+      }
+
+      .hero-stat strong {
+        display: block;
+        font-size: 44px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        line-height: 1;
+      }
+
+      .hero-stat span {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+
+      .rail {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        margin: 30px 0 34px;
+      }
+
+      .rail-item {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+      }
+
+      .rail-item:last-child { flex: 0; }
+
+      .dot {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        flex: none;
+        place-items: center;
+        border-radius: 999px;
+        background: var(--success);
+        color: #062310;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .dot.target {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--violet);
+        color: var(--violet);
+      }
+
+      .rail-item span {
+        flex: none;
+        font-size: 11.5px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .rail-line {
+        width: 100%;
+        height: 1px;
+        margin: 0 8px;
+        background: linear-gradient(90deg, rgba(48, 209, 88, 0.5), rgba(167, 139, 250, 0.45));
+      }
+
+      .columns {
+        display: grid;
+        grid-template-columns: 0.92fr 1.08fr;
+        gap: 28px;
+        align-items: start;
+      }
+
+      h2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 14px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      h2 .count {
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--foreground);
+        font-size: 10px;
+        letter-spacing: 0.02em;
+      }
+
+      .cards {
+        display: grid;
+        gap: 10px;
+      }
+
+      .card {
+        position: relative;
+        padding: 15px 17px;
+        border-radius: var(--radius);
+        background: color-mix(in oklab, var(--surface) 62%, transparent);
+        box-shadow: inset 0 0 0 0.5px var(--separator);
+      }
+
+      .card.shipped {
+        border-left: 2px solid rgba(48, 209, 88, 0.55);
+      }
+
+      .card.target {
+        border-left: 2px solid rgba(167, 139, 250, 0.55);
+        background: linear-gradient(160deg, rgba(167, 139, 250, 0.08), color-mix(in oklab, var(--surface) 54%, transparent));
+      }
+
+      .version {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 5px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--success);
+        text-transform: uppercase;
+      }
+
+      .target .version { color: var(--violet); }
+
+      .version em {
+        font-style: normal;
+        color: var(--muted);
+        font-weight: 550;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .card h3 {
+        margin: 0 0 5px;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.48;
+      }
+
+      .metric {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--violet-soft);
+        color: #d8ccff;
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .goals {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .goal {
+        display: flex;
+        gap: 11px;
+        padding: 14px;
+        border-radius: 18px;
+        background: linear-gradient(160deg, rgba(167, 139, 250, 0.09), color-mix(in oklab, var(--surface) 52%, transparent));
+        box-shadow: inset 0 0 0 0.5px rgba(167, 139, 250, 0.22);
+      }
+
+      .goal-number {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        flex: none;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--violet-soft);
+        color: var(--violet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .goal h3 {
+        margin: 1px 0 4px;
+        font-size: 13px;
+        font-weight: 650;
+        letter-spacing: -0.012em;
+      }
+
+      .goal p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.45;
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 30px;
+        padding-top: 18px;
+        border-top: 0.5px solid var(--separator);
+        color: rgba(245, 245, 247, 0.42);
+        font-size: 11px;
+      }
+
+      footer strong { color: var(--muted); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <div class="brand">
+          <span class="brand-mark">U</span>
+          UsageAtlas
+          <span class="fork">unofficial fork</span>
+        </div>
+        <h1>Seven releases shipped.<br>Ten outcomes to 0.5.0.</h1>
+        <p>Every card is a change in a published build. Every 0.5.0 goal waits for its
+          acceptance test to pass in one — no goal moves on intention alone.</p>
+      </div>
+      <div class="hero-stat">
+        <strong>0.4.6</strong>
+        <span>current build · Windows</span>
+      </div>
+    </header>
+
+    <div class="rail">
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.0</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.1</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.2</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.3</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.4</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.5</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot">✓</span><span>0.4.6</span><span class="rail-line"></span></div>
+      <div class="rail-item"><span class="dot target">◎</span><span>0.5.0</span></div>
+    </div>
+
+    <main class="columns">
+      <section>
+        <h2>Shipped <span class="count">7</span></h2>
+        <div class="cards">
+          <article class="card shipped">
+            <div class="version">0.4.0 <em>the truth of the usage</em></div>
+            <h3>Real provider attribution</h3>
+            <p>Cloud uploads carry the provider and model that actually ran. The fake
+              alias rewrite is gone.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.1 <em>a smaller history</em></div>
+            <h3>Compact local storage</h3>
+            <p>Day facts and observations drop from 4.61 MB to 0.86 MB on a real profile.
+              Nothing a report needs is lost.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.2 <em>numbers you can read</em></div>
+            <h3>Full figures, new settings</h3>
+            <p>Exact token counts instead of 50M and 1B, plus accent, surface, motion,
+              density, fonts and provider tints.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.3 <em>capacity and cost</em></div>
+            <h3>Active tools, honest dollars</h3>
+            <p>Every enabled tool shows today's tokens and cost at $0.54 per million —
+              the rate at the top of the public leaderboard.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.4 <em>a quieter window</em></div>
+            <h3>One-number mini window</h3>
+            <p>Transparent, truly rounded, resizable, and short units below 300 px.
+              Settings gains a local provider probe.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.5 <em>the four fixes</em></div>
+            <h3>Cloud save, day details, mini window, icon</h3>
+            <p>The server gets records it can validate, day details are plain JSON again,
+              the card resizes from its own handles, and the taskbar shows the coffee.</p>
+          </article>
+          <article class="card shipped">
+            <div class="version">0.4.6 <em>quiet when hidden</em></div>
+            <h3>Background economy, provider directory</h3>
+            <p>Hidden windows return their renderer after 30 seconds and refresh 15×
+              less often. Settings → Providers searches the whole catalog with real marks;
+              discovery revisits the route it remembers and keeps looking for more ledgers.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>0.5.0 · ten hard outcomes <span class="count">0 / 10</span></h2>
+        <div class="goals">
+          <article class="goal">
+            <span class="goal-number">01</span>
+            <div>
+              <h3>Any tool, in 30 seconds</h3>
+              <p>300+ verified readers and 98 % of installed tools found on clean
+                Windows and macOS, first token in under 30 s, zero network calls.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">02</span>
+            <div>
+              <h3>Bill-exact, to the cent</h3>
+              <p>Within ±2 % of five real invoices over 90 days, with cache tiers, tax
+                and FX named, and a monthly export that totals to the bill.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">03</span>
+            <div>
+              <h3>A year, three devices</h3>
+              <p>365 days restored in 5 s, zero duplicate tokens after five interrupted
+                saves, one device removed without losing its history.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">04</span>
+            <div>
+              <h3>Invisible under load</h3>
+              <p>200 ms cold paint, 80 MB resident after an hour idle, 0.1 % idle CPU,
+                30 ms page switches at one million stored requests.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">05</span>
+            <div>
+              <h3>A million facts, still instant</h3>
+              <p>Search and filter 1 M facts in 100 ms, zoom twelve months without a
+                freeze, drill into projects and sessions at that size.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">06</span>
+            <div>
+              <h3>Trusted by construction</h3>
+              <p>AES-256 vault, signed feed, automatic rollback, SBOM and reproducible
+                hash; a tampered package is refused before it runs.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">07</span>
+            <div>
+              <h3>Fluent for everyone</h3>
+              <p>Twelve languages including one RTL, 100 % of strings translated,
+                keyboard-only and screen-reader passes, WCAG 2.2 AA.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">08</span>
+            <div>
+              <h3>Predict before you spend</h3>
+              <p>A 30-day forecast that lands within 5 %, budget guardrails that warn
+                before the overrun, and a burn-rate alert that actually fires.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">09</span>
+            <div>
+              <h3>Any model, real price</h3>
+              <p>Custom rates, tiers, batch and cache discounts, subscription true-up,
+                and a reconciliation that explains every remaining cent.</p>
+            </div>
+          </article>
+          <article class="goal">
+            <span class="goal-number">10</span>
+            <div>
+              <h3>Own every byte</h3>
+              <p>Full-fidelity export and import, a local API and a reader SDK, a
+                genuinely offline mode, and no telemetry in either.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span><strong>UsageAtlas unofficial fork</strong> · MIT licence · the name and logo remain the original project's</span>
+      <span>A 0.5.0 goal is shipped only when its test passes in a published build · 2026</span>
+    </footer>
+  </body>
+</html>

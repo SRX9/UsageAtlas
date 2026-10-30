@@ -151,7 +151,9 @@ describe("background local history imports", () => {
     await vi.waitFor(() => expect(count(first)).toBe(250)); await first.close();
     const resumed = store(file);
     expect(historyDaysForAccount(resumed, "cursor", "account", now)).toBe(HISTORY_BACKFILL_DAYS);
-    await expect(wait(resumed)).rejects.toThrow("Refresh usage");
+    // Nothing is writing until the next scan, so a save waits for nothing.
+    await expect(wait(resumed)).resolves.toBeUndefined();
+    expect(resumed.imports.status()).toBeNull();
     resumed.saveCollection("cursor", "account", analytics());
     await wait(resumed);
     expect(count(resumed)).toBe(701); expect(resumed.imports.needsBackfill("cursor", "account")).toBe(false);

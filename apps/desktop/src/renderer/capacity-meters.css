@@ -43,7 +43,7 @@
 .atlas-limits-preview__content {
   display: grid;
   min-height: 264px;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   padding: 18px 20px 16px;
 }
@@ -95,6 +95,93 @@
 .atlas-limits-preview__meters[data-count="2"] {
   width: min(380px, 100%);
   justify-self: center;
+}
+
+/* Tools that report tokens but no quota window still belong on the card. */
+.atlas-active-tools {
+  display: grid;
+  min-height: 0;
+  align-content: center;
+  gap: 8px;
+}
+
+.atlas-active-tool {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--surface) 62%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+
+.atlas-active-tool__name,
+.atlas-active-tool__usage {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.atlas-active-tool__name strong,
+.atlas-active-tool__name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-active-tool__name strong {
+  font-size: 0.8125rem;
+  font-weight: 620;
+}
+
+.atlas-active-tool__name span {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.atlas-active-tool__usage {
+  align-items: flex-end;
+  text-align: end;
+}
+
+.atlas-active-tool__usage strong {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-active-tool__usage span {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-limits-preview__quiet {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.atlas-limits-preview__quiet-label {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.atlas-limits-preview__quiet-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 4px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--surface) 58%, transparent);
+  color: var(--muted);
+  font-size: 0.6875rem;
 }
 
 .atlas-limit-meter {

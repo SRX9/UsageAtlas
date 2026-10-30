@@ -79,6 +79,16 @@ export class SqliteHistoryStore implements HistoryStore {
   replicaId(): string {
     return this.replica;
   }
+  /**
+   * Moves every stored estimate to one blended rate, including history recorded
+   * before the rate was chosen. Day rows and event observations both change, so
+   * the dashboard and the cloud copy keep the same total.
+   */
+  repriceCosts(ratePerMillion: number, observedAt = new Date().toISOString()): number {
+    const days = this.usage.repriceDayCosts(ratePerMillion);
+    const facts = this.usage.statistics.reprice(ratePerMillion, observedAt);
+    return days + facts;
+  }
   get(providerId: string, accountKey: string, localDay: string): HistoryDayRecord | null {
     const id = stableId(usageSource(this.replica, providerId, accountKey), localDay);
     const local = this.usage.get(id) ?? this.usage.localRecord(id);

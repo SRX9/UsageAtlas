@@ -23,7 +23,7 @@ export async function resolveQuotaCredential(id: QuotaProviderId, options: Crede
     if (secret?.startsWith('"') && secret.endsWith('"') || secret?.startsWith("'") && secret.endsWith("'")) secret = secret.slice(1, -1);
   }
   if (!secret) return null;
-  const rawRegion = id === "kimi" ? env.KIMI_REGION : id === "qoder" ? env.QODER_REGION : undefined;
+  const rawRegion = id === "kimi" ? env.KIMI_REGION : id === "qoder" ? env.QODER_REGION : id === "zai" ? env.ZAI_REGION : undefined;
   if (rawRegion && !["china", "global"].includes(rawRegion)) throw new ProviderError("credentials_invalid", "Provider region must be global or china.");
   try {
     return validateProviderCredential(id, { secret,

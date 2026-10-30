@@ -1,6 +1,6 @@
 import structural from "./usage-validator.cjs";
 
-export type UsageProvider = "codex" | "claude" | "cursor" | "opencode" | "antigravity" | "pi" | "muse" | "warp" | "kimi" | "kilo" | "copilot" | "factory" | "amp" | "qoder";
+export type UsageProvider = "codex" | "claude" | "cursor" | "opencode" | "antigravity" | "pi" | "muse" | "warp" | "kimi" | "kilo" | "copilot" | "factory" | "amp" | "qoder" | "freebuff" | "zai" | "gemini" | "qwen" | "cline" | "roo";
 /** Provider-reported capacity counters. Never add these to historical usage totals. */
 export interface QuotaMetric {
   id: string;

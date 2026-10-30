@@ -14,7 +14,9 @@
     "lint": "turbo run lint",
     "test": "node --test tooling/*.test.mjs && turbo run test",
     "typecheck": "turbo run typecheck",
-    "generate:desktop-icons": "bun tooling/generate-desktop-icons.mjs",
+    "generate:desktop-icons": "bun tooling/generate-desktop-icons.mjs && bun tooling/generate-app-marks.mjs",
+    "generate:app-marks": "bun tooling/generate-app-marks.mjs",
+    "discover": "bun build tooling/discover-provider.ts --target=node --outfile=.vite/tools/discover-provider.mjs && node .vite/tools/discover-provider.mjs",
     "desktop:start": "turbo run dev --filter=@usageatlas/desktop --env-mode=loose",
     "desktop:lint": "turbo run lint --filter=@usageatlas/desktop",
     "desktop:typecheck": "turbo run typecheck --filter=@usageatlas/desktop",
@@ -41,6 +43,7 @@
     "macos-alias"
   ],
   "overrides": {
+    "decode-uri-component": "0.5.1",
     "brace-expansion": "5.0.11",
     "fast-uri": "3.1.7",
     "postcss": "8.5.31",

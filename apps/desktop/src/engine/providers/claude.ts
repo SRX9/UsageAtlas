@@ -82,7 +82,9 @@ async function refreshClaude(
     signal: context.signal,
     now: context.now,
     historyDays,
-    timeZone: context.reportingTimeZoneForAccount?.("local")
+    timeZone: context.reportingTimeZoneForAccount?.("local"),
+    extraLogPaths: context.extraLogPaths,
+    ignoredProjects: context.ignoredProjects
   });
   try {
     const remote = await refreshClaudeQuota(context, options);

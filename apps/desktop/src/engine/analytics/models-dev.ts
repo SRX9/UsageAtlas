@@ -12,6 +12,11 @@ const MAXIMUM_BYTES = 8 * 1_024 * 1_024;
 
 let memory: { cachePath: string; fetchedAt: string; catalog: PricingCatalog } | null = null;
 
+/** Forces the next scan to re-fetch the catalog instead of reusing today's copy. */
+export function clearPricingCache(): void {
+  memory = null;
+}
+
 export interface ModelRate {
   contextTiers?: { threshold: number; input?: number; output?: number; cacheRead?: number; cacheWrite?: number }[];
   input: number;
@@ -29,6 +34,21 @@ export interface PricingCatalog {
   revision: string;
   rate(providerID: string, modelID: string): ModelRate | null;
 }
+
+/**
+ * A tool's own vendor prefix, mapped to the provider that publishes the same
+ * model in the catalog. Freebuff serves `z-ai/glm-5.3-flash`, for instance,
+ * while models.dev keys the same model under `zhipuai`. Looked up only when the
+ * prefix itself has no rate, so a catalog that carries the vendor directly wins.
+ */
+const PROVIDER_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  "z-ai": ["zhipuai", "zai"],
+  zhipu: ["zhipuai"],
+  mistralai: ["mistral"],
+  "x-ai": ["xai"],
+  qwen: ["alibaba", "qwen"],
+  "meta-llama": ["meta"]
+};
 
 interface CacheFile {
   fetchedAt: string;
@@ -48,7 +68,13 @@ export function pricingCatalogFromRates(
   return {
     revision,
     rate(providerID, modelID) {
-      return rates[providerID]?.[modelID] ?? null;
+      const direct = rates[providerID]?.[modelID];
+      if (direct) return direct;
+      for (const alias of PROVIDER_ALIASES[providerID] ?? []) {
+        const rate = rates[alias]?.[modelID];
+        if (rate) return rate;
+      }
+      return null;
     }
   };
 }

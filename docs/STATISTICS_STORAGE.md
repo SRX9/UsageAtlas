@@ -10,7 +10,7 @@ UsageAtlas stores private numeric observations separately from daily display sum
 - `collection`: coverage dates, status, parser/pricing revision, source-file and processed-record counts, and a machine-readable failure reason. A partial collection does not prove that missing days had zero usage.
 - `capacity`: timestamped plan, quota windows, reset times, and credit balances. Earlier snapshots remain available.
 
-`usage_record` remains the revisioned daily/capacity projection used by existing screens. `usage_record_history` retains replaced projections. Local history also retains their private detail payloads. Historical daily summaries remain useful when original source events have disappeared; a rescan does not silently reduce previously saved token or request totals.
+`usage_record` remains the revisioned daily/capacity projection used by existing screens, with its private detail payload stored deflated. Historical daily summaries remain useful when original source events have disappeared; a rescan does not silently reduce previously saved token or request totals.
 
 ## Measurements and identity
 
@@ -34,15 +34,21 @@ The private contract accepts bounded model identifiers without a public-name all
 
 ## Sync and recovery
 
-Daily display summaries are saved before the snapshot returns. Event observations then commit on a dedicated SQLite worker in transactions of at most 250 facts, so the engine can answer requests while storage is busy. Provider scans pause these background batches so disk work cannot consume another provider's scan timeout. The worker also runs idle checkpoints; commits retain FULL durability. The dashboard reports committed records while this work runs. Each import keeps the account owner captured when collection finished; changing accounts cannot redirect its remaining batches.
+Daily display detail is stored deflated and decompressed when a day is opened, so a long history keeps its hourly and per-model breakdowns at a fraction of the JSON size. Collection and capacity snapshots are deleted locally once the server acknowledges them. A saved request keeps its payload for a week — enough to answer what just ran — and after that only its content fingerprint remains, so a rescan still cannot upload it twice. An attribution label is a column on the fact or day it describes, so it disappears with that row and cannot accumulate on its own. The ledger indexes the columns the app filters on (`pending`, `time`, `event`) and no longer carries the model and project indexes nothing queried. Daily display summaries are saved before the snapshot returns. Event observations then commit on a dedicated SQLite worker in transactions of at most 250 facts, so the engine can answer requests while storage is busy. Provider scans pause these background batches so disk work cannot consume another provider's scan timeout. The worker also runs idle checkpoints; commits retain FULL durability. The dashboard reports committed records while this work runs. Each import keeps the account owner captured when collection finished; changing accounts cannot redirect its remaining batches.
 
 An unfinished-source marker survives shutdown or a failed batch. The next refresh rescans up to 90 days and deduplicates already committed observations. A collection completion fact is written only after its events. Uncommitted observations still depend on surviving source files or provider history; the marker cannot recover deleted source data. Cloud saves wait for local imports to finish and report import failures.
 
 Local insertion and projection updates are transactional. Facts form a durable outbox and are acknowledged only after the server confirms their exact IDs. Retrying an interrupted upload is idempotent. A restore validates content hashes and saves its cursor in the same local transaction as its facts.
 
+A source the server does not model stays in this local ledger and is named in Settings → Cloud save; the rest of the history saves normally. The user can add an Attribution rule that reports it under official providers for the upload only — local rows keep their real provider, and the rule's deterministic per-request target is reused on retry. A cloud copy whose content no longer matches its id is skipped rather than stored.
+
 Remote batches are bounded to 250 facts and 512 KiB. All reads and writes use the authenticated account; a payload cannot select a different user. Writes serialize on the account row before sequence allocation, preventing an incremental reader from skipping a later commit with a lower sequence. The remote projection-history trigger also archives direct administrative updates.
 
 The first desktop upgrade creates these tables and repairs recoverable model labels without changing totals. Existing local detail is retained across compatible cloud restores and archived before incompatible replacement. Source rescanning fills the event ledger only from surviving source files or provider history. It cannot reconstruct deleted logs, source fields never reported, or exact event timing from an old daily summary.
+
+## What the hosted service receives
+
+The local encoding is not part of the contract. Uploads are the same `usage-record-v1` and statistics JSON documents as before: a day written here, or a fact, is sent as canonical JSON and validated against the published schema. Saving a label, compressing a local detail payload, or dropping an unused index never changes a request body, a record id or a hash. The hosted PostgreSQL schema, its validation and its aggregation therefore need no change for this storage work; the only server-visible behaviour is the provider name a rule reports, which is the Attribution feature itself.
 
 ## Example queries
 

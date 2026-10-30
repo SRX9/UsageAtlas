@@ -1,5 +1,5 @@
 import type { DashboardSnapshot, DashboardWindow } from "@usageatlas/contracts";
-import type { UsageAlertPreferences } from "../shared/desktop-api";
+import type { TokenAlertPreferences, UsageAlertPreferences } from "../shared/desktop-api";
 
 export interface TriggeredUsageAlert {
   providerID: string;
@@ -83,6 +83,76 @@ export function createUsageAlertNotification(alert: TriggeredUsageAlert): {
     title: `${alert.providerName} capacity alert`,
     body: `${alert.windowLabel} has ${formatPercent(alert.remainingPercent)}% remaining. Your alert is set for ${alert.thresholdPercent}% remaining.`
   };
+}
+
+export interface TriggeredTokenAlert {
+  providerID: string;
+  providerName: string;
+  tokens: number;
+}
+
+/** What the notification says, kept in one place so the test button and the real alert agree. */
+export function tokenAlertMessage(providerName: string, tokens: number): string {
+  return `You used ${formatTokens(tokens)} tokens on ${providerName} today.`;
+}
+
+export function createTokenAlertNotification(alert: TriggeredTokenAlert): {
+  title: string;
+  body: string;
+} {
+  return {
+    title: `${alert.providerName} usage today`,
+    body: tokenAlertMessage(alert.providerName, alert.tokens)
+  };
+}
+
+interface TokenObservation {
+  day: string;
+  tokens: number;
+  alerted: boolean;
+}
+
+/**
+ * Daily token alerts. Every enabled source with local history is watched, not just
+ * the ones that expose a quota window, so this works for private or unofficial
+ * providers too. One notification per source per local day, as soon as the day's
+ * total reaches the configured threshold.
+ */
+export class TokenAlertEvaluator {
+  private readonly observations = new Map<string, TokenObservation>();
+
+  evaluate(
+    snapshot: DashboardSnapshot,
+    preferences: TokenAlertPreferences,
+    now = new Date()
+  ): TriggeredTokenAlert[] {
+    const day = localDay(now);
+    const alerts: TriggeredTokenAlert[] = [];
+    for (const provider of snapshot.providers) {
+      if (!provider.enabled) continue;
+      const tokens = provider.analytics?.today.totalTokens ?? 0;
+      const previous = this.observations.get(provider.id);
+      const current: TokenObservation = previous?.day === day
+        ? { ...previous, tokens }
+        : { day, tokens, alerted: false };
+      if (!preferences.enabled || tokens < preferences.thresholdTokens) current.alerted = false;
+      if (preferences.enabled && !current.alerted && tokens >= preferences.thresholdTokens) {
+        alerts.push({ providerID: provider.id, providerName: provider.name, tokens });
+        current.alerted = true;
+      }
+      this.observations.set(provider.id, current);
+    }
+    return alerts;
+  }
+}
+
+function localDay(value: Date): string {
+  const offset = value.getTimezoneOffset() * 60_000;
+  return new Date(value.valueOf() - offset).toISOString().slice(0, 10);
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
 }
 
 export const USAGE_ALERT_DELIVERY_COOLDOWN_MS = 120_000;

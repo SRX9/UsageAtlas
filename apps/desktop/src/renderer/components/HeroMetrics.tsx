@@ -1,6 +1,6 @@
 import { Card } from "@heroui/react";
 import type { ActivityGranularity, ActivitySeries, UsageActivityBucket } from "../activity-buckets";
-import { formatCompactCurrency, formatCompactNumber, formatCost, formatExactTokens, formatTokens } from "../number-format";
+import { formatAxisCurrency, formatAxisNumber, formatCompactCurrency, formatCompactNumber, formatCost, formatExactTokens, formatTokens } from "../number-format";
 import type { ProviderPeriodUsage, TokenComposition } from "../personal-analytics";
 import type { ModelInsight, ModelMix, ModelProviderUsage } from "../usage-insights";
 import { Area, Line } from "./dither-kit/area";
@@ -131,7 +131,7 @@ export function ActivityComposedChart({ series }: { series: ActivitySeries }): R
             <BarChart bloom="low" config={activityConfig} data={data} margins={{ left: 52 }}>
               <Grid />
               <XAxis dataKey="axisLabel" />
-              <YAxis tickFormatter={formatCompactNumber} />
+              <YAxis tickFormatter={formatAxisNumber} />
               <Bar dataKey="tokens" variant="gradient" />
               <Tooltip
                 labelKey="label"
@@ -466,7 +466,7 @@ function formatChartSummaryValue(value: number, kind: "tokens" | "cost" | "reque
 }
 
 function formatAxisValue(value: number, kind: "tokens" | "cost" | "requests"): string {
-  return kind === "cost" ? formatCompactCurrency(value) : formatCompactNumber(value);
+  return kind === "cost" ? formatAxisCurrency(value) : formatAxisNumber(value);
 }
 
 function shortDay(value: string): string {

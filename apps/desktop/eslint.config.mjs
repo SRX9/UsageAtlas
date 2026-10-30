@@ -20,6 +20,17 @@ export default tseslint.config(
     rules: { "@typescript-eslint/no-require-imports": "off" }
   },
   {
+    // Build scripts run in Node, not in the renderer.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        console: "readonly",
+        process: "readonly"
+      }
+    }
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },

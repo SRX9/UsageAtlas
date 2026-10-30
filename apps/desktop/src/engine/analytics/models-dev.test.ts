@@ -71,6 +71,22 @@ describe("models.dev catalog", () => {
     expect(catalog.rate("anthropic", "missing")).toBeNull();
   });
 
+  it("finds the rate of a tool's own vendor prefix under the publishing provider", () => {
+    // Freebuff routes `z-ai/glm-5.3-flash`; models.dev publishes it as zhipuai.
+    const catalog = pricingCatalogFromRates({
+      zhipuai: { "glm-5.3-flash": { input: 1.1952e-7, output: 4.1831e-7 } },
+      mistral: { "codestral-2508": { input: 3e-7, output: 9e-7 } },
+      zai: { "glm-5.3-flash": { input: 9e-7, output: 9e-7 } }
+    });
+    expect(catalog.rate("z-ai", "glm-5.3-flash")?.input).toBe(1.1952e-7);
+    expect(catalog.rate("mistralai", "codestral-2508")?.output).toBe(9e-7);
+    // A provider key the catalog carries itself still wins over an alias.
+    expect(catalog.rate("zai", "glm-5.3-flash")?.input).toBe(9e-7);
+    // An unmapped prefix, or a model nobody publishes, stays unpriced.
+    expect(catalog.rate("stealth", "ox-alpha")).toBeNull();
+    expect(catalog.rate("z-ai", "glm-5.4")).toBeNull();
+  });
+
   it("refreshes a stale cache and reuses a fresh one without fetching", async () => {
     const home = await createHome();
     const now = new Date("2026-08-14T12:00:00.000Z");

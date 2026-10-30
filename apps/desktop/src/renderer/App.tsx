@@ -4,17 +4,24 @@ import { UsageEmpty, UsageFailure, UsageLoading, UsageRefreshStatus, UsageStorag
 import type {
   AppRoute,
   DashboardState,
+  DesktopAlertInboxEntry,
   DesktopPreferences,
+  DesktopUsageAlert,
   EngineDiagnostics,
   EngineStatus
 } from "../shared/desktop-api";
 import { applyWallpaper } from "./wallpapers";
+import { applyAppearance } from "./appearance";
+import { setCostDisplay } from "./number-format";
+import type { AppMark } from "../shared/desktop-api";
 import { useAchievementNudge } from "./achievement-nudge";
 import { snapshotHasCachedUsage } from "../shared/cached-snapshot";
 import { dashboardFailure, dashboardIsLoading, initialDashboardState, latestDashboardState } from "./dashboard-state";
 import { useDesktopUpdates } from "./update-state";
 import { UpdateTag } from "./components/UpdateControls";
+import { I18nProvider, useI18n } from "./i18n";
 import { AppShell } from "./components/AppShell";
+import { Attribution } from "./components/Attribution";
 import { DayDashboard } from "./components/DayDashboard";
 import type { HealthNotice } from "./components/Diagnostics";
 import { Diagnostics } from "./components/Diagnostics";
@@ -33,10 +40,34 @@ import { providerConnection, reconnectSentence } from "./provider-connection";
 import { wantsProfilePrompt } from "./profile-promotion";
 import { useCloudAccount, useLeaderboard, useProfilePageVisited, useProfilePrompt } from "./profile-state";
 import { useWrappedNudge } from "./wrapped-nudge";
+import type { ReportPlan } from "../shared/report-plans";
+
+const ALERT_INBOX_KEY = "usageatlas.alert-inbox.v1";
+const MAX_INBOX_ENTRIES = 50;
+
+/** Reads the received alerts kept on this computer; a corrupt list starts empty. */
+function readAlertInbox(): DesktopAlertInboxEntry[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(ALERT_INBOX_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap(item => {
+      if (!item || typeof item !== "object") return [];
+      const entry = item as Record<string, unknown>;
+      if (typeof entry.title !== "string" || typeof entry.body !== "string"
+        || typeof entry.route !== "string" || typeof entry.receivedAt !== "string") return [];
+      if (Number.isNaN(Date.parse(entry.receivedAt))) return [];
+      return [{ title: entry.title, body: entry.body, route: entry.route as AppRoute, receivedAt: entry.receivedAt }];
+    }).slice(0, MAX_INBOX_ENTRIES);
+  } catch {
+    return [];
+  }
+}
 
 export function App(): React.JSX.Element {
   const updates = useDesktopUpdates();
   const [route, setRoute] = useState<AppRoute>(() => routeFromHash(location.hash));
+  // Set on the way to a page, so the shell knows which side that page comes from.
+  const [previousRoute, setPreviousRoute] = useState<AppRoute | null>(null);
   const [dashboard, setDashboard] = useState(initialDashboardState);
   const { snapshot, refreshing, progress: refreshProgress } = dashboard;
   const updateDashboard = useCallback((next: DashboardState) => {
@@ -44,6 +75,7 @@ export function App(): React.JSX.Element {
   }, []);
   const [preferences, setPreferences] = useState<DesktopPreferences | null>(null);
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState<string | null>(null);
+  const [markUrls, setMarkUrls] = useState<Record<AppMark, string> | null>(null);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<EngineDiagnostics | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>("starting");
@@ -51,8 +83,11 @@ export function App(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
+  const [aliasSaving, setAliasSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
+  const [usageAlert, setUsageAlert] = useState<DesktopUsageAlert | null>(null);
+  const [alertInbox, setAlertInbox] = useState<DesktopAlertInboxEntry[]>(readAlertInbox);
   const [selectedDay, setSelectedDay] = useState(() => todayDay());
   const [trendEndDay, setTrendEndDay] = useState(() => todayDay());
   const [trendRange, setTrendRange] = useState<AnalyticsRange>(30);
@@ -60,6 +95,25 @@ export function App(): React.JSX.Element {
   const [recapOpen, setRecapOpen] = useState(false);
   const cloud = useCloudAccount();
   const profileVisited = useProfilePageVisited(route);
+
+  useEffect(() => {
+    const unsubscribe = window.usageAtlas?.onUsageAlert?.((alert) => {
+      setUsageAlert(alert);
+      setAlertInbox(current => [
+        { ...alert, receivedAt: new Date().toISOString() },
+        ...current
+      ].slice(0, MAX_INBOX_ENTRIES));
+    });
+    return unsubscribe ?? undefined;
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ALERT_INBOX_KEY, JSON.stringify(alertInbox));
+    } catch {
+      // The list is a convenience; losing it must never break an alert.
+    }
+  }, [alertInbox]);
 
   const loadDiagnostics = useCallback(async (): Promise<void> => {
     setDiagnosticsLoading(true);
@@ -73,10 +127,11 @@ export function App(): React.JSX.Element {
   }, []);
 
   const navigate = useCallback((next: AppRoute): void => {
+    setPreviousRoute(route);
     location.hash = next;
     setRoute(next);
     if (next === "diagnostics") void loadDiagnostics();
-  }, [loadDiagnostics]);
+  }, [loadDiagnostics, route]);
 
   useEffect(() => {
     let active = true;
@@ -87,16 +142,18 @@ export function App(): React.JSX.Element {
     });
     const bootstrap = async (): Promise<void> => {
       try {
-        const [nextDashboard, nextPreferences, nextBackgroundUrl, nextDiagnostics] = await Promise.all([
+        const [nextDashboard, nextPreferences, nextBackgroundUrl, nextDiagnostics, nextMarks] = await Promise.all([
           window.usageAtlas.getSnapshot(),
           window.usageAtlas.getPreferences(),
           window.usageAtlas.getCustomBackground(),
-          window.usageAtlas.getDiagnostics()
+          window.usageAtlas.getDiagnostics(),
+          window.usageAtlas.getAppMarks().catch(() => null)
         ]);
         if (!active) return;
         updateDashboard(nextDashboard);
         setPreferences(nextPreferences);
         setCustomBackgroundUrl(nextBackgroundUrl);
+        setMarkUrls(nextMarks);
         setDiagnostics(nextDiagnostics);
         setEngineStatus(nextDiagnostics.status);
         setError(null);
@@ -117,6 +174,21 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     applyWallpaper(preferences?.backgroundImage, customBackgroundUrl);
   }, [customBackgroundUrl, preferences?.backgroundImage]);
+
+  const appearance = preferences?.appearance;
+  useEffect(() => {
+    if (appearance) applyAppearance(appearance);
+  }, [appearance]);
+
+  const advanced = preferences?.advanced;
+  useEffect(() => {
+    if (!advanced) return;
+    setCostDisplay({
+      currency: advanced.currency,
+      rate: advanced.currencyRate,
+      taxPercent: advanced.taxPercent
+    });
+  }, [advanced]);
 
   useEffect(() => {
     const onHashChange = () => setRoute(routeFromHash(location.hash));
@@ -177,6 +249,15 @@ export function App(): React.JSX.Element {
     }
   }
 
+  async function saveReportPlans(plans: ReportPlan[]): Promise<void> {
+    setAliasSaving(true);
+    try {
+      setPreferences(await window.usageAtlas.setReportPlans(plans));
+    } finally {
+      setAliasSaving(false);
+    }
+  }
+
   const usageError = error ?? dashboardFailure(dashboard);
   const usageLoading = loading || (!usageError && dashboardIsLoading(dashboard));
   const today = todayDay();
@@ -223,6 +304,22 @@ export function App(): React.JSX.Element {
     setTrendRange(range);
     setTrendEndDay(today);
     navigate("trends");
+  }
+
+  async function importSettings(): Promise<void> {
+    const next = await window.usageAtlas.importSettings().catch((caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : "The settings file could not be read.");
+      return null;
+    });
+    if (next) setPreferences(next);
+  }
+
+  async function exportUsage(): Promise<void> {
+    try {
+      await window.usageAtlas.exportUsageNow();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The usage export could not be written.");
+    }
   }
 
   const activity = (
@@ -312,12 +409,27 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <AppShell activityControl={!usageRoute ? activity : null} engineStatus={engineStatus} noticeCount={notices.length} onNavigate={navigate}
+    <I18nProvider language={preferences?.language ?? "system"}>
+    <AppShell activityControl={!usageRoute ? activity : null} appMarkUrl={preferences && markUrls ? markUrls[preferences.appearance.mark] : null}
+      engineStatus={engineStatus} previousRoute={previousRoute} noticeCount={notices.length} onNavigate={navigate}
       profileBadge={!profileVisited && cloud.status !== null && wantsProfilePrompt(cloud.status.profile)} route={route}
-      updateControl={<UpdateTag state={updates.state} onCheck={updates.check} onInstall={updates.install} />}>
+      updateControl={<UpdateTag state={updates.state} onCheck={updates.check} onInstall={updates.install} />}
+      alertBanner={usageAlert ? (
+        <UsageAlertBanner
+          alert={usageAlert}
+          onDismiss={() => setUsageAlert(null)}
+          onOpen={() => {
+            navigate(usageAlert.route);
+            setUsageAlert(null);
+          }}
+        />
+      ) : null}>
       {renderUsageRoute()}
       {route === "alerts" && (
         <UsageAlertsPage
+          notifications={alertInbox}
+          onClearNotifications={() => setAlertInbox([])}
+          onTestAlert={async (tokens, providerName) => window.usageAtlas.sendTestAlert(tokens, providerName)}
           onUpdate={updatePreferences}
           preferences={preferences}
           providers={snapshot?.providers ?? []}
@@ -356,16 +468,26 @@ export function App(): React.JSX.Element {
           prompt={profilePrompt.prompt}
         />
       )}
+      {route === "attribution" && (
+        <Attribution
+          onSave={saveReportPlans}
+          preferences={preferences}
+          providers={snapshot?.providers ?? []}
+          saving={aliasSaving}
+        />
+      )}
       {route === "settings" && (
         <Settings
           updateState={updates.state}
           onCheckForUpdates={updates.check}
           onInstallUpdate={updates.install}
+          onRollbackUpdate={updates.rollback}
           backgroundError={backgroundError}
           customBackgroundUrl={customBackgroundUrl}
           onChooseCustomBackground={chooseCustomBackground}
           onOpenExternal={openExternal}
           onRefresh={refreshAll}
+          markUrls={markUrls}
           onSetProviderEnabled={setProviderEnabled}
           onUpdate={updatePreferences}
           preferences={preferences}
@@ -373,6 +495,14 @@ export function App(): React.JSX.Element {
           providers={snapshot?.providers ?? []}
           refreshing={refreshing}
           saving={saving}
+          onShowWidget={() => window.usageAtlas.showWidget()}
+          onHideWidget={() => window.usageAtlas.hideWidget()}
+          onExportSettings={() => window.usageAtlas.exportSettings().then(() => undefined)}
+          onImportSettings={importSettings}
+          onChooseFolder={() => window.usageAtlas.chooseFolder()}
+          onChooseExportDirectory={() => window.usageAtlas.chooseExportDirectory()}
+          onExportUsage={exportUsage}
+          onRestartApp={() => window.usageAtlas.restartApp()}
         />
       )}
       {route === "diagnostics" && (
@@ -389,6 +519,42 @@ export function App(): React.JSX.Element {
         />
       )}
     </AppShell>
+    </I18nProvider>
+  );
+}
+
+/**
+ * The same alert the toast carries, kept in the window. Windows may accept a toast
+ * and hide it behind Focus assist or a per-app switch, so the message and its link
+ * stay reachable here until dismissed.
+ */
+function UsageAlertBanner({ alert, onDismiss, onOpen }: {
+  alert: DesktopUsageAlert;
+  onDismiss(): void;
+  onOpen(): void;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  return (
+    <aside aria-live="polite" className="atlas-usage-banner">
+      <span aria-hidden="true" className="atlas-usage-banner__mark">
+        <svg fill="none" viewBox="0 0 24 24"><path d="M12 8v5m0 3.5v.5" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7" /></svg>
+      </span>
+      <div className="atlas-usage-banner__body">
+        <strong>{alert.title}</strong>
+        <span>{alert.body}</span>
+      </div>
+      <button className="atlas-usage-banner__action" onClick={onOpen} type="button">
+        {t("alertBanner.open")}
+      </button>
+      <button
+        aria-label={t("alertBanner.dismiss")}
+        className="atlas-usage-banner__close"
+        onClick={onDismiss}
+        type="button"
+      >
+        <svg aria-hidden="true" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+      </button>
+    </aside>
   );
 }
 
@@ -423,7 +589,7 @@ function backgroundImageErrorMessage(caught: unknown): string {
 
 function routeFromHash(hash: string): AppRoute {
   const candidate = hash.replace(/^#/, "");
-  if (candidate === "trends" || candidate === "insights" || candidate === "limits" || candidate === "alerts" || candidate === "profile" || candidate === "settings" || candidate === "diagnostics") {
+  if (candidate === "trends" || candidate === "insights" || candidate === "limits" || candidate === "alerts" || candidate === "profile" || candidate === "attribution" || candidate === "settings" || candidate === "diagnostics") {
     return candidate;
   }
   return "day";

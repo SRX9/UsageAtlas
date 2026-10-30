@@ -53,9 +53,11 @@ export class CollectionImporter {
   }
 
   status(owner = this.store.owner): LocalImportProgress | null {
+    // Only a live job is progress. A marker with no job is unfinished bookkeeping
+    // from an earlier run: it keeps the next scan looking further back, but nothing
+    // is writing right now, so there is no import to report and nothing to retry.
     const job = this.jobs.find(entry => entry.owner === owner || entry.owner === "");
-    if (job) return { completed: job.completed, total: job.total, error: job.error };
-    return this.hasMarker(owner) ? { completed: 0, total: 0, error: "Local history import was interrupted. Refresh usage to resume." } : null;
+    return job ? { completed: job.completed, total: job.total, error: job.error } : null;
   }
 
   wait(owner: string, signal: AbortSignal): Promise<void> {
@@ -71,8 +73,10 @@ export class CollectionImporter {
         const jobs = this.jobs.filter(job => job.owner === owner || job.owner === "");
         const failed = jobs.find(job => job.error);
         if (failed) finish(new Error(failed.error!));
-        else if (!jobs.length) finish(this.hasMarker(owner)
-          ? new Error("Refresh usage to finish storing local history before saving to cloud.") : undefined);
+        // A stale marker is not a writer. Waiting forever, or failing the save,
+        // would turn an interrupted scan into a cloud save that never succeeds;
+        // the committed facts are consistent, and the next scan backfills the rest.
+        else if (!jobs.length) finish();
       };
       this.waiters.add(check);
       signal.addEventListener("abort", aborted, { once: true });
@@ -140,9 +144,5 @@ export class CollectionImporter {
   private prefix(owner: string): string { return `collection-pending:${stableId(owner)}:`; }
   private key(owner: string, provider: string, account: string): string {
     return `${this.prefix(owner)}${stableId(this.replica, provider, account)}`;
-  }
-  private hasMarker(owner: string): boolean {
-    return [owner, ""].some(account => Boolean(this.store.db.get(
-      "SELECT 1 FROM usage_setting WHERE key LIKE ? LIMIT 1", [`${this.prefix(account)}%`])));
   }
 }

@@ -112,7 +112,7 @@ export function nextTierText(progress: AchievementProgress): string | null {
   const next = achievementFamily(progress.id).tiers[progress.level];
   if (next === undefined) return null;
   if (progress.id === "tokens" || progress.id === "big-day")
-    return `${formatCompactNumber(progress.value)} of ${short(next)} tokens`;
+    return `${formatCompactNumber(progress.value)} of ${formatCompactNumber(next)} tokens`;
   const unit = progress.id === "tools" ? "tools" : "days";
   return `${progress.value.toLocaleString("en-US")} of ${next} ${unit}`;
 }

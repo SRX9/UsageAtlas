@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="980" viewBox="0 0 1240 980" role="img" aria-labelledby="title desc">
+  <title id="title">UsageAtlas timeline: 0.4.0 through 0.4.5 shipped, 0.5.0 is the next major contract</title>
+  <desc id="desc">0.4.0 shipped real provider labels, a ledger at 18.6 percent of its previous size and a 63-provider discovery seed catalog. 0.4.1 added twenty-eight settings controls and restored attribution. 0.4.2 made updates hand over to the newest build and repaired the widget and provider-colour settings. 0.4.3 introduced a blended 0.54 dollar per million token estimate and active tool capacity. 0.4.4 rebuilt the mini window around one token count and wired discovery into Settings; 0.4.5 closes its two window bugs and the cloud, JSON and icon problems, and adds installed-tool discovery plus an idle window that does no work. 0.5.0 has seven major outcomes; discovery, the trusted build and the invisible-load goal now have a first slice.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b0d"/>
+      <stop offset="1" stop-color="#141418"/>
+    </linearGradient>
+    <linearGradient id="next" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1240" height="980" fill="url(#bg)"/>
+  <circle cx="1090" cy="60" r="240" fill="#a78bfa" opacity="0.055"/>
+  <circle cx="120" cy="930" r="220" fill="#30d158" opacity="0.04"/>
+
+  <text x="64" y="58" font-family="Inter, 'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#30d158" letter-spacing="1.8">USAGEATLAS · RELEASE TIMELINE</text>
+  <text x="64" y="92" font-family="Inter, 'Segoe UI', sans-serif" font-size="25" font-weight="650" fill="#f5f5f7">0.4.0 → 0.4.5 shipped. 0.5.0 is the next major contract.</text>
+  <text x="64" y="116" font-family="Inter, 'Segoe UI', sans-serif" font-size="12" fill="#a1a1a6">Each 0.5.0 card names the number it has to hit before it counts as shipped. Three cards now have a first slice.</text>
+
+  <text x="64" y="164" font-family="Inter, 'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#30d158" letter-spacing="1.6">SHIPPED · 0.4.0 → 0.4.5</text>
+  <rect x="64" y="184" width="1112" height="2" rx="1" fill="#30d158" opacity="0.35"/>
+
+  <g font-family="Inter, 'Segoe UI', sans-serif">
+    <g filter="url(#shadow)">
+      <rect x="64" y="208" width="211" height="200" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#30d158" stroke-opacity="0.45"/>
+      <rect x="289" y="208" width="211" height="200" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+      <rect x="514" y="208" width="211" height="200" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+      <rect x="739" y="208" width="211" height="200" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#30d158" stroke-opacity="0.32"/>
+      <rect x="964" y="208" width="211" height="200" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#30d158" stroke-opacity="0.55"/>
+    </g>
+
+    <text x="80" y="234" font-size="10.5" font-weight="700" fill="#30d158">0.4.0 · 29 OCT 2026</text>
+    <text x="80" y="258" font-size="13" font-weight="650" fill="#f5f5f7">The honest release</text>
+    <g font-size="10" fill="#a1a1a6">
+      <text x="80" y="284">Real provider labels,</text>
+      <text x="80" y="299">no wheel.</text>
+      <text x="80" y="319">4.61 → 0.856 MB ledger.</text>
+      <text x="80" y="339">63-provider discovery seed.</text>
+      <text x="80" y="359">Inbox and undoable update.</text>
+    </g>
+
+    <text x="305" y="234" font-size="10.5" font-weight="700" fill="#30d158">0.4.1 · 29 OCT 2026</text>
+    <text x="305" y="258" font-size="13" font-weight="650" fill="#f5f5f7">Every setting</text>
+    <g font-size="10" fill="#a1a1a6">
+      <text x="305" y="284">28 spec controls wired.</text>
+      <text x="305" y="304">Attribution restored.</text>
+      <text x="305" y="324">1.38 MB → 704 KB local file.</text>
+      <text x="305" y="344">Day detail stored deflated.</text>
+      <text x="305" y="364">Widget and alerts configured.</text>
+    </g>
+
+    <text x="530" y="234" font-size="10.5" font-weight="700" fill="#30d158">0.4.2 · 29 OCT 2026</text>
+    <text x="530" y="258" font-size="13" font-weight="650" fill="#f5f5f7">Updates that update</text>
+    <g font-size="10" fill="#a1a1a6">
+      <text x="530" y="284">Newest build takes the lock.</text>
+      <text x="530" y="304">One icon, one live build.</text>
+      <text x="530" y="324">Taskbar icon follows the build.</text>
+      <text x="530" y="344">Widget and colour UI fixed.</text>
+      <text x="530" y="364">Settings screens repaired.</text>
+    </g>
+
+    <text x="755" y="234" font-size="10.5" font-weight="700" fill="#30d158">0.4.3 · 29 OCT 2026</text>
+    <text x="755" y="258" font-size="13" font-weight="650" fill="#f5f5f7">Costs that look real</text>
+    <g font-size="10" fill="#a1a1a6">
+      <text x="755" y="284">$0.54 per 1M tokens blended.</text>
+      <text x="755" y="304">762M repriced: $82.88 → $411.</text>
+      <text x="755" y="324">Active tools without quotas.</text>
+      <text x="755" y="344">1.2 GB old artifacts removed.</text>
+      <text x="755" y="364">Discovery documented as seed.</text>
+    </g>
+
+    <text x="980" y="234" font-size="10.5" font-weight="700" fill="#30d158">0.4.4 · 29 OCT 2026</text>
+    <text x="980" y="258" font-size="13" font-weight="650" fill="#f5f5f7">Small window, real search</text>
+    <g font-size="10" fill="#a1a1a6">
+      <text x="980" y="284">Token-only mini window.</text>
+      <text x="980" y="304">Discovery in Settings.</text>
+      <text x="980" y="324" fill="#f5f5f7" font-weight="650">Closed in 0.4.5:</text>
+      <text x="980" y="344">opaque card + 8 resize handles,</text>
+      <text x="980" y="360">cloud day, plain JSON, one icon.</text>
+    </g>
+  </g>
+
+  <rect x="64" y="438" width="1112" height="1" fill="#ffffff" opacity="0.10"/>
+  <text x="64" y="472" font-family="Inter, 'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="1.6">NEXT · 0.5.0 · MAJOR</text>
+  <text x="218" y="472" font-family="Inter, 'Segoe UI', sans-serif" font-size="12" fill="#a1a1a6">Seven hard outcomes, no date promised. A card leaves this row only when its acceptance test passes.</text>
+
+  <g font-family="Inter, 'Segoe UI', sans-serif">
+    <g filter="url(#shadow)">
+      <rect x="64" y="496" width="260" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#30d158" stroke-opacity="0.55"/>
+      <rect x="348" y="496" width="260" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#a78bfa" stroke-opacity="0.28"/>
+      <rect x="632" y="496" width="260" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#a78bfa" stroke-opacity="0.28"/>
+      <rect x="916" y="496" width="260" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#a78bfa" stroke-opacity="0.28"/>
+      <rect x="64" y="702" width="356" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#30d158" stroke-opacity="0.55"/>
+      <rect x="442" y="702" width="356" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#a78bfa" stroke-opacity="0.28"/>
+      <rect x="820" y="702" width="356" height="190" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#a78bfa" stroke-opacity="0.28"/>
+    </g>
+
+    <g font-size="10" font-weight="700" fill="#a78bfa">
+      <text x="82" y="518">01</text>
+      <text x="366" y="518">02</text>
+      <text x="650" y="518">03</text>
+      <text x="934" y="518">04</text>
+      <text x="82" y="724">05</text>
+      <text x="460" y="724">06</text>
+      <text x="838" y="724">07</text>
+    </g>
+    <g font-size="13" font-weight="650" fill="#f5f5f7">
+      <text x="82" y="542">Any tool, 30 s</text>
+      <text x="366" y="542">Bill-exact</text>
+      <text x="650" y="542">A year, 3 devices</text>
+      <text x="934" y="542">Invisible load</text>
+      <text x="82" y="748">Trusted build</text>
+      <text x="460" y="748">Fluent everywhere</text>
+      <text x="838" y="748">1M facts, instant</text>
+    </g>
+    <g font-size="10.5" fill="#a1a1a6">
+      <text x="82" y="564">300+ verified providers.</text>
+      <text x="82" y="579">98 % of installed tools found.</text>
+      <text x="82" y="594">First token under 30 s.</text>
+      <text x="82" y="609">Zero network calls to discover.</text>
+
+      <text x="366" y="564">Within ±2 % of five invoices</text>
+      <text x="366" y="579">for 90 days, cache and tiers</text>
+      <text x="366" y="594">included, tax and FX applied,</text>
+      <text x="366" y="609">every difference named.</text>
+
+      <text x="650" y="564">One document per tool and day.</text>
+      <text x="650" y="579">365 days restored in 5 s.</text>
+      <text x="650" y="594">Three devices, no conflict,</text>
+      <text x="650" y="609">no duplicate after 5 crashes.</text>
+
+      <text x="934" y="564">200 ms cold first paint.</text>
+      <text x="934" y="579">80 MB idle, 0.1 % CPU.</text>
+      <text x="934" y="594">30 ms page switch at 1M facts.</text>
+      <text x="934" y="609">Under 2 % battery per hour.</text>
+
+      <text x="82" y="770">AES-256 local vault and signed feed.</text>
+      <text x="82" y="785">Tampered package refused, rollback</text>
+      <text x="82" y="800">in one launch, zero stale app folders.</text>
+      <text x="82" y="815">SBOM and reproducible build hash.</text>
+
+      <text x="460" y="770">12 languages, one of them RTL.</text>
+      <text x="460" y="785">100 % renderer strings translated.</text>
+      <text x="460" y="800">Keyboard-only and screen-reader pass.</text>
+      <text x="460" y="815">WCAG 2.2 AA on every main screen.</text>
+
+      <text x="838" y="770">1M facts filtered in 100 ms.</text>
+      <text x="838" y="785">12-month graph zooms without freezing.</text>
+      <text x="838" y="800">Project and session drill-down at size.</text>
+      <text x="838" y="815">Export/import round-trip loses nothing.</text>
+    </g>
+
+    <g>
+      <rect x="200" y="506" width="106" height="18" rx="9" fill="#30d158" fill-opacity="0.16"/>
+      <text x="209" y="519" font-size="8.5" font-weight="700" fill="#30d158" letter-spacing="0.6">IN PROGRESS</text>
+      <text x="82" y="638" font-size="9.5" fill="#30d158">0.4.4 the in-app scan · 0.4.5 installed tools.</text>
+
+      <rect x="932" y="616" width="106" height="18" rx="9" fill="#30d158" fill-opacity="0.16"/>
+      <text x="941" y="629" font-size="8.5" font-weight="700" fill="#30d158" letter-spacing="0.6">IN PROGRESS</text>
+      <text x="934" y="650" font-size="9.5" fill="#30d158">0.4.5: a hidden window stops polling.</text>
+
+      <rect x="302" y="712" width="106" height="18" rx="9" fill="#30d158" fill-opacity="0.16"/>
+      <text x="311" y="725" font-size="8.5" font-weight="700" fill="#30d158" letter-spacing="0.6">IN PROGRESS</text>
+      <text x="82" y="844" font-size="9.5" fill="#30d158">First slice in 0.4.4: restart badge and rollback.</text>
+    </g>
+  </g>
+
+  <text x="64" y="940" font-family="Inter, 'Segoe UI', sans-serif" font-size="9.5" fill="#6e6e73">Built from the open-source UsageAtlas app · MIT licence · the UsageAtlas name and logo remain the original project's</text>
+</svg>

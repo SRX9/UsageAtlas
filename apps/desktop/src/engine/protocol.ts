@@ -4,7 +4,7 @@ import type { JsonValue } from "@usageatlas/contracts";
 export const ENGINE_MESSAGE_LIMIT = 1_048_576;
 export const ENGINE_PROTOCOL_VERSION = 1 as const;
 
-export type EngineMethod = "snapshot.get" | "provider.refresh" | "config.update" | "cloud" | "shutdown";
+export type EngineMethod = "snapshot.get" | "provider.refresh" | "config.update" | "pricing.refresh" | "cloud" | "shutdown";
 
 export interface EngineRefreshProgress {
   completed: number;
@@ -121,6 +121,7 @@ function isMethod(value: unknown): value is EngineMethod {
   return value === "snapshot.get"
     || value === "provider.refresh"
     || value === "config.update"
+    || value === "pricing.refresh"
     || value === "cloud"
     || value === "shutdown";
 }

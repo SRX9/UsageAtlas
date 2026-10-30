@@ -11,6 +11,10 @@ tmp/
 .env
 .env.*
 *.local
+# Files named `*.local.test.ts` measure this computer's own data.
+*.local.test.ts
+# Locally staged release assets; releases are published on GitHub, not in the tree.
+/release/
 *.pfx
 *.p12
 *.pem

@@ -5,7 +5,8 @@ export const QUOTA_PROVIDERS = {
   copilot: { name: "GitHub Copilot", credential: "GitHub OAuth token", environment: "COPILOT_GITHUB_TOKEN", help: "Use a Copilot-authorized GitHub OAuth token. Generic fine-grained PATs may not have access." },
   factory: { name: "Factory / Droid", credential: "API key", environment: "FACTORY_API_KEY", help: "Create an API key in Factory settings. The local .factory/.env file is also supported." },
   amp: { name: "Amp", credential: "Access token", environment: "AMP_API_KEY", help: "Create an access token in Amp settings." },
-  qoder: { name: "Qoder", credential: "Session cookie", environment: "QODER_COOKIE", help: "Copy the Cookie header from your Qoder account usage request. Select its site below." }
+  qoder: { name: "Qoder", credential: "Session cookie", environment: "QODER_COOKIE", help: "Copy the Cookie header from your Qoder account usage request. Select its site below." },
+  zai: { name: "z.ai / GLM", credential: "API key", environment: "ZAI_API_KEY", help: "Create an API key for your GLM Coding Plan. Select the matching region below." }
 } as const;
 
 export type QuotaProviderId = keyof typeof QUOTA_PROVIDERS;
@@ -36,6 +37,7 @@ export function validateProviderCredential(id: unknown, value: unknown): Provide
   const secret = v.secret.trim().replace(id === "qoder" ? /^Cookie:\s*/iu : /^Bearer\s+/iu, "");
   if (!secret || (id === "qoder" ? !/^[^=;\s]+=.+/u.test(secret) : /\s/u.test(secret))) throw new Error("Invalid credential format.");
   if (v.region !== undefined && v.region !== "china" && v.region !== "global") throw new Error("Invalid provider region.");
+  if (v.region !== undefined && !["kimi", "qoder", "zai"].includes(id)) throw new Error("Invalid provider region.");
   if (v.organization !== undefined && (id !== "kilo" || typeof v.organization !== "string" || !/^[a-zA-Z0-9_-]{0,128}$/u.test(v.organization)))
     throw new Error("Invalid Kilo organization ID.");
   return { secret, ...(v.region ? { region: v.region as "china" | "global" } : {}),

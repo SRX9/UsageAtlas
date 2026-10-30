@@ -3,8 +3,10 @@ import type { EngineDiagnostics, EngineStatus } from "../../shared/desktop-api";
 import { Alert, Button, Card, Skeleton, Tooltip } from "@heroui/react";
 import { CloseIcon, ExternalIcon, RefreshIcon } from "../icons";
 import { providerConnection } from "../provider-connection";
+import { FORK_HOME_URL } from "../../shared/fork";
 
-const REPOSITORY_URL = "https://github.com/SRX9/UsageAtlas";
+// This fork adds code the original project does not ship, so its issues are reported here.
+const REPOSITORY_URL = FORK_HOME_URL;
 
 /**
  * Something the usage numbers should be read against — a source that needs a new

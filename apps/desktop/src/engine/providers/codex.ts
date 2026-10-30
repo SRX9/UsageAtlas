@@ -85,7 +85,9 @@ async function refreshCodex(
     signal: context.signal,
     now: context.now,
     historyDays,
-    timeZone: context.reportingTimeZoneForAccount?.("local")
+    timeZone: context.reportingTimeZoneForAccount?.("local"),
+    extraLogPaths: context.extraLogPaths,
+    ignoredProjects: context.ignoredProjects
   });
   try {
     const payload = await (options.appServer ?? readCodexRateLimits)(context.signal);

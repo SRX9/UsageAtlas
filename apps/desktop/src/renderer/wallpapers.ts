@@ -11,7 +11,13 @@ const wallpaperLabels: Record<BuiltInBackgroundId, string> = {
   valley: "Valley",
   "anime-calm": "Night",
   monterey: "Monterey",
-  "big-sur": "Big Sur"
+  "big-sur": "Big Sur",
+  sierra: "Sierra",
+  aurora: "Aurora",
+  dunes: "Dunes",
+  tide: "Tide",
+  orchid: "Orchid",
+  solstice: "Solstice"
 };
 
 export const BUILT_IN_WALLPAPERS: BuiltInWallpaper[] = BUILT_IN_BACKGROUND_IDS.map((id) => ({

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app, autoUpdater, net } from "electron";
+import type { UpdateChannel } from "../shared/desktop-api";
+import { resolveUpdateSource } from "./update-feed";
 import { configureAutoUpdates } from "./updates";
 
 vi.mock("electron", async () => {
@@ -133,5 +135,35 @@ describe("desktop updates", () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     vi.mocked(net.fetch).mockResolvedValue(response);
     expect((await configureAutoUpdates().check()).status).toBe("error");
+  });
+
+  it("reads the fork's GitHub releases when that channel is selected", async () => {
+    const updater = configureAutoUpdates({ source: () => resolveUpdateSource("fork") });
+    await updater.check();
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({ url: "https://github.com/Artleboss2/UsageAtlas-Unofficial/releases/latest/download" });
+    expect(updater.downloadPageURL()).toBe("https://github.com/Artleboss2/UsageAtlas-Unofficial/releases/latest");
+  });
+
+  it("follows the channel without a restart", async () => {
+    let channel: UpdateChannel = "fork";
+    const updater = configureAutoUpdates({ source: () => resolveUpdateSource(channel) });
+    await updater.check();
+    autoUpdater.emit("update-not-available");
+    channel = "upstream";
+    await updater.check();
+    expect(vi.mocked(autoUpdater.setFeedURL).mock.calls.map((call) => call[0])).toEqual([
+      { url: "https://github.com/Artleboss2/UsageAtlas-Unofficial/releases/latest/download" },
+      { url: "https://updates.usageatlas.com/win32/x64" }
+    ]);
+  });
+
+  it("compares versions from the GitHub tag on platforms it cannot install in place", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+    vi.mocked(net.fetch).mockResolvedValue(new Response(JSON.stringify({ tag_name: "desktop-v0.2.12" })));
+    const updater = configureAutoUpdates({ source: () => resolveUpdateSource("fork") });
+    expect(await updater.check()).toMatchObject({ status: "available", availableVersion: "0.2.12" });
+    expect(vi.mocked(net.fetch).mock.calls[0][0])
+      .toBe("https://api.github.com/repos/Artleboss2/UsageAtlas-Unofficial/releases/latest");
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
   });
 });

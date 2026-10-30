@@ -120,7 +120,7 @@ describe("Profile page", () => {
 
     expect(html).toContain("Share your week or month");
     expect(html).toContain("My week in AI coding");
-    expect(html).toContain("<strong>1.8K</strong> tokens");
+    expect(html).toContain("<strong>1,800</strong> tokens");
     expect(html).toContain('<span class="atlas-recap__link">usageatlas.com/@ada_l</span>');
     expect(html).toContain("Copy image");
     expect(html).toContain("Save image");
@@ -155,7 +155,7 @@ describe("Profile page", () => {
     expect(html).toContain("Your first achievements");
     expect(html).toContain("From the history on this computer. A public profile shows the ones you&#x27;ve earned.");
     expect(html.match(/Not earned yet/gu)?.length).toBe(5);
-    expect(html).toContain("1.8K of 1M tokens");
+    expect(html).toContain("1,800 of 1,000,000 tokens");
     expect(html).toContain("2 of 7 days");
     expect(html).toContain("1 of 2 tools");
     expect(render(null)).not.toContain("profile-achievements");
@@ -235,6 +235,8 @@ function status(signedIn: CloudStatus["account"], profile: CloudProfileStatus): 
     accountId: signedIn?.id ?? null,
     automatic: true,
     busy: false,
+    heldBack: [],
+    heldBackCount: 0,
     conflicts: [],
     error: null,
     lastCompleted: null,

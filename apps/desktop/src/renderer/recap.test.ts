@@ -82,8 +82,8 @@ describe("recap", () => {
     expect(recapChange({ ...recap, period: "month", change: -12 })).toBe("−12% vs the 30 days before");
     expect(recapChange({ ...recap, change: null })).toBeNull();
     expect(recapBusiestDay(recap)).toBe("Tue, Jul 14");
-    expect(recapPostText(recap)).toBe("My week in AI coding: 2.1K tokens across Codex. 5 days in a row and counting.");
-    expect(recapPostText({ ...recap, streak: 2, tools: [] })).toBe("My week in AI coding: 2.1K tokens.");
+    expect(recapPostText(recap)).toBe("My week in AI coding: 2,100 tokens across Codex. 5 days in a row and counting.");
+    expect(recapPostText({ ...recap, streak: 2, tools: [] })).toBe("My week in AI coding: 2,100 tokens.");
     expect(recapFileName(recap)).toBe("usageatlas-week-2026-07-17.png");
   });
 

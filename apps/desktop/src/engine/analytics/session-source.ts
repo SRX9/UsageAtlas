@@ -4,7 +4,7 @@ import path from "node:path";
 import type { LocalUsageAnalytics } from "@usageatlas/contracts";
 import { buildAnalytics, unavailableAnalytics, type AnalyticsScanContext, type UsageRecord } from "./local-usage";
 import { emptyPricingCatalog, type PricingCatalog } from "./models-dev";
-import { estimateClaudeCost, estimateCodexCost } from "./pricing";
+import { blendedCostFor, estimateClaudeCost, estimateCodexCost } from "./pricing";
 import { object, sum } from "./session-values";
 
 export interface SessionSourceOptions {
@@ -210,6 +210,9 @@ export function sessionAnalytics(parsed: ParsedSession, files: number, context: 
 }
 
 export function estimateSessionCost(record: UsageRecord, catalog: PricingCatalog = emptyPricingCatalog()): number | null {
+  // A flat rate is the only estimate that stays honest for private model names.
+  const blended = blendedCostFor(record.totalTokens);
+  if (blended !== null) return blended;
   if (record.modelProvider === "openai-codex" || record.modelProvider === "openai") return estimateCodexCost({ ...record,
     inputTokens: sum(record.inputTokens, record.cachedInputTokens, record.cacheCreationInputTokens) }, catalog);
   if (record.modelProvider === "anthropic") return estimateClaudeCost(record, catalog);

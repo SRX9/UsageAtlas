@@ -178,12 +178,12 @@ describe("profile prompt timing", () => {
       { id: "cursor", name: "Cursor", tokens: 1, share: 0.2 }
     ];
     expect(promptCopy({ kind: "recap" }, preview({ totalTokens: 1_200_000, tools })).body)
-      .toBe("1.2M tokens across Codex, Claude and Cursor. One link that stays up to date.");
-    expect(promptCopy({ kind: "milestone-tokens", tokens: 1e9 }, preview()).title).toBe("You've passed 1B tokens");
+      .toBe("1,200,000 tokens across Codex, Claude and Cursor. One link that stays up to date.");
+    expect(promptCopy({ kind: "milestone-tokens", tokens: 1e9 }, preview()).title).toBe("You've passed 1,000,000,000 tokens");
     expect(promptCopy({ kind: "wrapped", year: 2026 }, preview({ yearTokens: { 2026: 2.14e9 } }))).toEqual({
       kicker: "AI Coding Wrapped",
       title: "Your 2026 in AI coding",
-      body: "2.1B tokens in 2026. Public profiles get a Wrapped to share: streaks, the biggest day, and top tools and models."
+      body: "2,140,000,000 tokens in 2026. Public profiles get a Wrapped to share: streaks, the biggest day, and top tools and models."
     });
   });
 });
@@ -235,8 +235,8 @@ describe("leaderboard standing", () => {
     });
     expect(standingCopy({ kind: "ranked", rank: 1, of: 1 }, board([], 0, 0), 10, false)?.title).toBe("You'd be #1 on the leaderboard");
     expect(standingCopy({ kind: "outside", top: 100, threshold: 1_250_000 }, glance, 90_000, false)).toEqual({
-      title: "The top 100 starts at 1.3M tokens",
-      detail: "You've used 90K in the last 30 days. Join 57 people with public profiles."
+      title: "The top 100 starts at 1,250,000 tokens",
+      detail: "You've used 90,000 in the last 30 days. Join 57 people with public profiles."
     });
     expect(standingCopy({ kind: "unranked" }, board([], 0, 1), 0, false)?.title).toBe("Join 1 person with a public profile");
     expect(standingCopy({ kind: "unranked" }, board([], 0, 0), 0, false)?.title).toBe("Be the first on the leaderboard");

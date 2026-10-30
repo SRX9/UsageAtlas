@@ -1,0 +1,254 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1100" viewBox="0 0 1200 1100" role="img" aria-labelledby="title desc">
+  <title id="title">UsageAtlas unofficial fork — shipped releases and the 0.4.0 plan</title>
+  <desc id="desc">Timeline of every 0.3 release, from the Freebuff reader in 0.3.0 to the cloud-counter and local-archive fixes in 0.3.9, followed by the seven checkable goals of 0.4.0.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17171a"/>
+      <stop offset="0.55" stop-color="#111113"/>
+      <stop offset="1" stop-color="#1c1a22"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#30d158"/>
+      <stop offset="0.6" stop-color="#30d158" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#30d158" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="next" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#6b3fd4"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.8" cy="0.1" r="0.7">
+      <stop offset="0" stop-color="#6b3fd4" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#6b3fd4" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif">
+    <rect width="1200" height="1100" rx="28" fill="url(#bg)"/>
+    <rect width="1200" height="1100" rx="28" fill="url(#glow)"/>
+    <rect x="0.5" y="0.5" width="1199" height="1099" rx="28" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+
+    <!-- Header -->
+    <g font-size="13" fill="#a1a1a6">
+      <rect x="64" y="40" width="150" height="26" rx="13" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.10"/>
+      <text x="139" y="57" text-anchor="middle" font-size="11" font-weight="600" fill="#f5f5f7" letter-spacing="0.4">UNOFFICIAL FORK</text>
+      <text x="1136" y="58" text-anchor="end" font-size="12" letter-spacing="0.2">shipped through 0.3.9 · 28 Oct 2026</text>
+    </g>
+    <text x="64" y="122" font-size="40" font-weight="700" fill="#f5f5f7" letter-spacing="-1.2">UsageAtlas</text>
+    <text x="64" y="152" font-size="15" fill="#a1a1a6">What this fork already changed, and what 0.4.0 has to prove.</text>
+
+    <!-- Glitch bars, echoing the app mark -->
+    <g opacity="0.9">
+      <rect x="1048" y="86" width="88" height="6" rx="3" fill="#ff375f"/>
+      <rect x="1036" y="98" width="100" height="6" rx="3" fill="#64d2ff" fill-opacity="0.85"/>
+      <rect x="1060" y="110" width="76" height="6" rx="3" fill="#ffd60a" fill-opacity="0.8"/>
+      <rect x="1052" y="122" width="64" height="4" rx="2" fill="#ffffff" fill-opacity="0.28"/>
+    </g>
+
+    <!-- Shipped row 1 -->
+    <text x="64" y="208" font-size="12" font-weight="600" fill="#30d158" letter-spacing="1.6">SHIPPED · 0.3.0 → 0.3.4</text>
+    <rect x="64" y="286" width="1072" height="2" rx="1" fill="url(#spine)"/>
+
+    <!-- 0.3.0 -->
+    <circle cx="64" cy="287" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="64" y="266" font-size="12" font-weight="650" fill="#f5f5f7">0.3.0</text>
+    <g filter="url(#shadow)">
+      <rect x="64" y="314" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="82" y="344" font-size="14" font-weight="650" fill="#f5f5f7">Freebuff + z.ai</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="82" y="368">Local provider readers</text>
+      <text x="82" y="386">Dynamic DB path planner</text>
+      <text x="82" y="404">Cloud attribution labels</text>
+    </g>
+    <text x="82" y="446" font-size="10.5" fill="#30d158">26 Oct 2026</text>
+
+    <!-- 0.3.1 -->
+    <circle cx="282" cy="287" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="282" y="266" font-size="12" font-weight="650" fill="#f5f5f7">0.3.1</text>
+    <g filter="url(#shadow)">
+      <rect x="282" y="314" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="300" y="344" font-size="14" font-weight="650" fill="#f5f5f7">Storage repaired</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="300" y="368">Cached tokens fixed</text>
+      <text x="300" y="386">Publisher picker</text>
+      <text x="300" y="404">Model picker per rule</text>
+    </g>
+    <text x="300" y="446" font-size="10.5" fill="#30d158">27 Oct 2026</text>
+
+    <!-- 0.3.2 -->
+    <circle cx="500" cy="287" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="500" y="266" font-size="12" font-weight="650" fill="#f5f5f7">0.3.2</text>
+    <g filter="url(#shadow)">
+      <rect x="500" y="314" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="518" y="344" font-size="14" font-weight="650" fill="#f5f5f7">Its own identity</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="518" y="368">Repository renamed</text>
+      <text x="518" y="386">Unaffiliated notice</text>
+      <text x="518" y="404">Fork release feed</text>
+    </g>
+    <text x="518" y="446" font-size="10.5" fill="#30d158">27 Oct 2026</text>
+
+    <!-- 0.3.3 -->
+    <circle cx="718" cy="287" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="718" y="266" font-size="12" font-weight="650" fill="#f5f5f7">0.3.3</text>
+    <g filter="url(#shadow)">
+      <rect x="718" y="314" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="736" y="344" font-size="14" font-weight="650" fill="#f5f5f7">The wheel turns</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="736" y="368">Weighted 30 / 20 / 50</text>
+      <text x="736" y="386">Glitched icon, round buttons</text>
+      <text x="736" y="404">Update channel works</text>
+    </g>
+    <text x="736" y="446" font-size="10.5" fill="#30d158">27 Oct 2026</text>
+
+    <!-- 0.3.4 -->
+    <circle cx="936" cy="287" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="936" y="266" font-size="12" font-weight="650" fill="#f5f5f7">0.3.4</text>
+    <g filter="url(#shadow)">
+      <rect x="936" y="314" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="954" y="344" font-size="14" font-weight="650" fill="#f5f5f7">Saves stop lying</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="954" y="368">Conflicts repaired</text>
+      <text x="954" y="386">Stable record labels</text>
+      <text x="954" y="404">No more zeroed days</text>
+    </g>
+    <text x="954" y="446" font-size="10.5" fill="#30d158">27 Oct 2026</text>
+
+    <!-- Shipped row 2 -->
+    <text x="64" y="514" font-size="12" font-weight="600" fill="#30d158" letter-spacing="1.6">SHIPPED · 0.3.5 → 0.3.9</text>
+    <rect x="64" y="592" width="986" height="2" rx="1" fill="url(#spine)"/>
+
+    <!-- 0.3.5 -->
+    <circle cx="64" cy="593" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="64" y="572" font-size="12" font-weight="650" fill="#f5f5f7">0.3.5</text>
+    <g filter="url(#shadow)">
+      <rect x="64" y="620" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="82" y="650" font-size="14" font-weight="650" fill="#f5f5f7">Speaks your language</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="82" y="674">Five interface languages</text>
+      <text x="82" y="692">Four more local readers</text>
+      <text x="82" y="710">Appearance, alerts, motion</text>
+    </g>
+    <text x="82" y="752" font-size="10.5" fill="#30d158">28 Oct 2026</text>
+
+    <!-- 0.3.6 -->
+    <circle cx="282" cy="593" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="282" y="572" font-size="12" font-weight="650" fill="#f5f5f7">0.3.6</text>
+    <g filter="url(#shadow)">
+      <rect x="282" y="620" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="300" y="650" font-size="14" font-weight="650" fill="#f5f5f7">Chrome that moves</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="300" y="674">Sliding rail highlight</text>
+      <text x="300" y="692">ICO marks for the taskbar</text>
+      <text x="300" y="710">Translated picker notes</text>
+    </g>
+    <text x="300" y="752" font-size="10.5" fill="#30d158">28 Oct 2026</text>
+
+    <!-- 0.3.7 -->
+    <circle cx="500" cy="593" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="500" y="572" font-size="12" font-weight="650" fill="#f5f5f7">0.3.7</text>
+    <g filter="url(#shadow)">
+      <rect x="500" y="620" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="518" y="650" font-size="14" font-weight="650" fill="#f5f5f7">Every digit</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="518" y="674">Full figures by default</text>
+      <text x="518" y="692">Accent, surfaces, motion</text>
+      <text x="518" y="710">Restart when newer installed</text>
+    </g>
+    <text x="518" y="752" font-size="10.5" fill="#30d158">28 Oct 2026</text>
+
+    <!-- 0.3.8 -->
+    <circle cx="718" cy="593" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="718" y="572" font-size="12" font-weight="650" fill="#f5f5f7">0.3.8</text>
+    <g filter="url(#shadow)">
+      <rect x="718" y="620" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    </g>
+    <text x="736" y="650" font-size="14" font-weight="650" fill="#f5f5f7">All of it, in one save</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="736" y="674">40 facts per request, looped</text>
+      <text x="736" y="692">Taskbar and shortcut icons</text>
+      <text x="736" y="710">In-app alert banner</text>
+    </g>
+    <text x="736" y="752" font-size="10.5" fill="#30d158">28 Oct 2026</text>
+
+    <!-- 0.3.9 -->
+    <circle cx="936" cy="593" r="7" fill="#101012" stroke="#30d158" stroke-width="2.5"/>
+    <text x="936" y="572" font-size="12" font-weight="650" fill="#f5f5f7">0.3.9</text>
+    <g filter="url(#shadow)">
+      <rect x="936" y="620" width="196" height="154" rx="16" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+      <rect x="936" y="620" width="196" height="154" rx="16" fill="none" stroke="#30d158" stroke-opacity="0.55"/>
+    </g>
+    <text x="954" y="650" font-size="14" font-weight="650" fill="#f5f5f7">Storage diet</text>
+    <g font-size="11.5" fill="#a1a1a6">
+      <text x="954" y="674">Counter counts real saves</text>
+      <text x="954" y="692">Archive bounded to 20</text>
+      <text x="954" y="710">One instance, ICO taskbar</text>
+    </g>
+    <text x="954" y="752" font-size="10.5" fill="#30d158">this release</text>
+
+    <!-- Next -->
+    <rect x="64" y="812" width="1072" height="1" fill="#ffffff" fill-opacity="0.10"/>
+    <rect x="64" y="842" width="86" height="26" rx="13" fill="url(#next)"/>
+    <text x="107" y="859" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff" letter-spacing="0.6">0.4.0</text>
+    <text x="166" y="860" font-size="17" font-weight="650" fill="#f5f5f7">The next release, with an acceptance test per goal</text>
+    <text x="1136" y="860" text-anchor="end" font-size="11" fill="#a78bfa">7 goals · no date promised</text>
+
+    <!-- Goal cards -->
+    <g filter="url(#shadow)">
+      <rect x="64" y="886" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="336" y="886" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="608" y="886" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="880" y="886" width="256" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="64" y="986" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="336" y="986" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+      <rect x="608" y="986" width="248" height="86" rx="14" fill="#ffffff" fill-opacity="0.045" stroke="#a78bfa" stroke-opacity="0.25"/>
+    </g>
+
+    <g font-size="10" fill="#a78bfa" font-weight="700">
+      <text x="82" y="906">01</text>
+      <text x="354" y="906">02</text>
+      <text x="626" y="906">03</text>
+      <text x="898" y="906">04</text>
+      <text x="82" y="1006">05</text>
+      <text x="354" y="1006">06</text>
+      <text x="626" y="1006">07</text>
+    </g>
+    <g font-size="12.5" font-weight="650" fill="#f5f5f7">
+      <text x="82" y="926">Provider discovery</text>
+      <text x="354" y="926">Compact cloud saves</text>
+      <text x="626" y="926">Deeper appearance</text>
+      <text x="898" y="926">Attribution preview</text>
+      <text x="82" y="1026">Trusted updates</text>
+      <text x="354" y="1026">Complete translation</text>
+      <text x="626" y="1026">Cheaper idle</text>
+    </g>
+    <g font-size="10.5" fill="#a1a1a6">
+      <text x="82" y="946">250 providers, offline probe,</text>
+      <text x="82" y="961">confidence score under 2 s.</text>
+      <text x="354" y="946">A third of the bytes, lossless</text>
+      <text x="354" y="961">migration, one run per account.</text>
+      <text x="626" y="946">Free accent, density, dimming,</text>
+      <text x="626" y="961">theme import and export.</text>
+      <text x="898" y="946">Per-model shares, payload</text>
+      <text x="898" y="961">preview before upload.</text>
+      <text x="82" y="1046">Restart badge, one-click rollback,</text>
+      <text x="82" y="1061">no stale “latest”.</text>
+      <text x="354" y="1046">Five catalogs, missing-key test,</text>
+      <text x="354" y="1061">no hard-coded English.</text>
+      <text x="626" y="1046">&lt; 400 ms first paint, &lt; 250 MB</text>
+      <text x="626" y="1061">idle, &lt; 50 ms per route switch.</text>
+    </g>
+
+    <text x="64" y="1092" font-size="9.5" fill="#6e6e73">Not affiliated with UsageAtlas · Artleboss2/UsageAtlas-Unofficial</text>
+  </g>
+</svg>

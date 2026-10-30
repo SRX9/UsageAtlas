@@ -5,6 +5,7 @@ import "../capacity-meters.css";
 import { limitEntryKey, rankedLimitEntries, type LimitEntry } from "../../shared/capacity-model";
 import { formatReset } from "../dashboard-model";
 import { ChevronRightIcon } from "../icons";
+import { formatCompactNumber, formatCost } from "../number-format";
 import { ProviderLogo } from "./ProviderLogo";
 
 interface LimitsPreviewCardProps {
@@ -17,6 +18,12 @@ export function LimitsPreviewCard({ providers, limitOrder, onOpenAll }: LimitsPr
   const entries = rankedLimitEntries(providers, limitOrder);
   const visibleEntries = entries.slice(0, 4);
   const hiddenCount = Math.max(0, entries.length - visibleEntries.length);
+  const activeProviders = providers.filter((provider) => provider.enabled && !provider.error);
+  // Quota windows are optional: a custom provider can report tokens without
+  // exposing a plan. Listing those tools keeps this card useful instead of
+  // showing an empty dial on a machine that is clearly being used.
+  const quietProviders = activeProviders.filter((provider) => provider.windows.length === 0);
+  const visibleQuiet = quietProviders.slice(0, 4);
 
   return (
     <Card className="atlas-limits-preview" variant="transparent">
@@ -26,7 +33,7 @@ export function LimitsPreviewCard({ providers, limitOrder, onOpenAll }: LimitsPr
             <p className="atlas-kicker">Available limits</p>
             <h2>Active tool capacity</h2>
           </div>
-          {entries.length > 0 ? (
+          {activeProviders.length > 0 ? (
             <Button
               className="atlas-limits-preview__action"
               onPress={onOpenAll}
@@ -48,11 +55,50 @@ export function LimitsPreviewCard({ providers, limitOrder, onOpenAll }: LimitsPr
               <LimitMeter compact entry={entry} key={limitEntryKey(entry)} />
             ))}
           </div>
+        ) : activeProviders.length > 0 ? (
+          <div className="atlas-active-tools" data-count={String(Math.min(4, activeProviders.length))}>
+            {activeProviders.slice(0, 4).map((provider) => (
+              <ActiveToolRow key={provider.id} provider={provider} />
+            ))}
+          </div>
         ) : (
           <LimitMeterEmpty />
         )}
+
+        {visibleEntries.length > 0 && visibleQuiet.length > 0 ? (
+          <div className="atlas-limits-preview__quiet">
+            <span className="atlas-limits-preview__quiet-label">Also active</span>
+            {visibleQuiet.map((provider) => (
+              <span className="atlas-limits-preview__quiet-tool" key={provider.id}>
+                <ProviderLogo mark providerID={provider.id} providerName={provider.name} />
+                {provider.name}
+              </span>
+            ))}
+            {quietProviders.length > visibleQuiet.length ? (
+              <span className="atlas-limits-preview__quiet-tool">+{quietProviders.length - visibleQuiet.length}</span>
+            ) : null}
+          </div>
+        ) : null}
       </Card.Content>
     </Card>
+  );
+}
+
+function ActiveToolRow({ provider }: { provider: DashboardProvider }): React.JSX.Element {
+  const today = provider.analytics?.today;
+  const plan = provider.identity?.plan?.trim();
+  return (
+    <div className="atlas-active-tool">
+      <ProviderLogo mini providerID={provider.id} providerName={provider.name} />
+      <div className="atlas-active-tool__name">
+        <strong>{provider.name}</strong>
+        <span>{plan ? plan : "No quota reported"}</span>
+      </div>
+      <div className="atlas-active-tool__usage">
+        <strong>{formatCompactNumber(today?.totalTokens ?? 0)}</strong>
+        <span>{formatCost(today?.estimatedCostUSD ?? null)}</span>
+      </div>
+    </div>
   );
 }
 

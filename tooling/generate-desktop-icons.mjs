@@ -57,17 +57,44 @@ await mkdir(destinationRoot, { recursive: true });
 await mkdir(installerRoot, { recursive: true });
 await mkdir(webPublicRoot, { recursive: true });
 
+/** Horizontal bands: the share of the height they cover and how far they slide. */
+const GLITCH_BANDS = [
+  { to: 0.12, shift: 0 },
+  { to: 0.2, shift: 34 },
+  { to: 0.29, shift: -14 },
+  { to: 0.44, shift: 0 },
+  { to: 0.52, shift: -52 },
+  { to: 0.66, shift: 22 },
+  { to: 0.83, shift: 0 },
+  { to: 0.9, shift: -30 },
+  { to: 1, shift: 0 }
+];
+/** Channel separation in pixels: red arrives late, blue early. */
+const GLITCH_CHANNEL_SHIFT = 5;
+/** Torn scanlines, each carrying its own tint. */
+const GLITCH_TEARS = [
+  { at: 0.283, thickness: 4, tint: [90, 255, 235] },
+  { at: 0.523, thickness: 5, tint: [255, 90, 220] },
+  { at: 0.845, thickness: 3, tint: [255, 240, 130] }
+];
+
 const artwork = readArtwork(PNG.sync.read(await readFile(masterPath)));
+// This fork's desktop icon is deliberately datamoshed, so a copy of it is never
+// mistaken for the official build: channels split, a few bands slid sideways and
+// three scanlines torn. It is glitched once at the app size and reduced from
+// there, so every size carries the same marks in the same places. The branding
+// and web copies keep the untouched artwork.
+const glitchedIcon = glitchIcon(renderIcon(artwork, appPngSize));
 // Writing the cut-out master back keeps the branding copy matching what ships,
 // and makes a second run a no-op because `readArtwork` honours an alpha channel
 // that is already there.
 await writeFile(masterPath, PNG.sync.write(renderIcon(artwork, artwork.width)));
 await writeFile(brandingLogoPath, PNG.sync.write(renderIcon(artwork, webLogoSize)));
-await writeFile(pngPath, PNG.sync.write(renderIcon(artwork, appPngSize)));
+await writeFile(pngPath, PNG.sync.write(glitchedIcon));
 await writeFile(webLogoPath, PNG.sync.write(renderIcon(artwork, webLogoSize)));
-await writeFile(icoPath, await renderIco(artwork, icoSizes));
+await writeFile(icoPath, await renderAppIco(icoSizes));
 await writeFile(webIconPath, await renderIco(artwork, webIcoSizes));
-await writeFile(icnsPath, renderIcns(artwork));
+await writeFile(icnsPath, renderAppIcns());
 await writeFile(dmgBackgroundPath, PNG.sync.write(createDmgBackground()));
 await rm(supersededIcnsPath, { force: true });
 
@@ -256,6 +283,95 @@ function clampByte(value) {
 
 function renderIco(artwork, sizes) {
   return pngToIco(sizes.map((size) => PNG.sync.write(renderIcon(artwork, size))));
+}
+
+/** One size of this fork's datamoshed desktop icon. */
+function renderAppIcon(size) {
+  if (size === appPngSize) return glitchedIcon;
+  return { width: size, height: size, data: reduceIcon(glitchedIcon, size) };
+}
+
+function renderAppIco(sizes) {
+  return pngToIco(sizes.map((size) => PNG.sync.write(renderAppIcon(size))));
+}
+
+/** Splits the channels, slides bands of rows and tears three scanlines. */
+function glitchIcon(image) {
+  const { width, height } = image;
+  const source = image.data;
+  const pixels = Buffer.alloc(source.length);
+  const at = (x, y) => (y * width + x) * 4;
+  const shiftFor = (y) => GLITCH_BANDS.find((band) => y / height < band.to)?.shift ?? 0;
+
+  for (let y = 0; y < height; y += 1) {
+    const shift = shiftFor(y);
+    for (let x = 0; x < width; x += 1) {
+      const target = at(x, y);
+      // The band slides sideways and wraps, so the pixels leaving one edge come
+      // back on the other: a block that reads as corrupted data, not a gap.
+      const slid = shift === 0 ? x : (x - shift + width) % width;
+      pixels[target] = source[at(Math.min(width - 1, slid + GLITCH_CHANNEL_SHIFT), y)];
+      pixels[target + 1] = source[at(slid, y) + 1];
+      pixels[target + 2] = source[at(Math.max(0, slid - GLITCH_CHANNEL_SHIFT), y) + 2];
+      pixels[target + 3] = source[at(slid, y) + 3];
+    }
+  }
+
+  for (const tear of GLITCH_TEARS) {
+    const top = Math.round(tear.at * height);
+    const span = Math.round(0.4 * width);
+    const left = Math.round(tear.at * (width - span));
+    for (let y = top; y < Math.min(height, top + tear.thickness); y += 1) {
+      for (let x = left; x < left + span; x += 1) {
+        const target = at(x, y);
+        // A line of pixels from the opposite edge, laid down where it does not belong.
+        const sample = at(width - 1 - x, top);
+        pixels[target] = mixTint(pixels[sample], tear.tint[0]);
+        pixels[target + 1] = mixTint(pixels[sample + 1], tear.tint[1]);
+        pixels[target + 2] = mixTint(pixels[sample + 2], tear.tint[2]);
+        pixels[target + 3] = pixels[sample + 3];
+      }
+    }
+  }
+  return { width, height, data: pixels };
+}
+
+function mixTint(channel, tint) {
+  return Math.round(channel * 0.45 + tint * 0.55);
+}
+
+/** Box filter: the small entries stay a faithful reduction of the marks. */
+function reduceIcon(image, size) {
+  const { width, height, data } = image;
+  const pixels = Buffer.alloc(size * size * 4);
+  const scale = width / size;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const sums = [0, 0, 0, 0];
+      let count = 0;
+      for (let sourceY = Math.floor(y * scale); sourceY < Math.min(height, Math.ceil((y + 1) * scale)); sourceY += 1) {
+        for (let sourceX = Math.floor(x * scale); sourceX < Math.min(width, Math.ceil((x + 1) * scale)); sourceX += 1) {
+          const at = (sourceY * width + sourceX) * 4;
+          for (let channel = 0; channel < 4; channel += 1) sums[channel] += data[at + channel];
+          count += 1;
+        }
+      }
+      const target = (y * size + x) * 4;
+      for (let channel = 0; channel < 4; channel += 1) pixels[target + channel] = Math.round(sums[channel] / count);
+    }
+  }
+  return pixels;
+}
+
+function renderAppIcns() {
+  const chunks = icnsRepresentations.map(([type, size]) => (
+    createIcnsChunk(type, PNG.sync.write(renderAppIcon(size)))
+  ));
+  const totalLength = 8 + chunks.reduce((length, chunk) => length + chunk.length, 0);
+  const header = Buffer.alloc(8);
+  header.write("icns", 0, "ascii");
+  header.writeUInt32BE(totalLength, 4);
+  return Buffer.concat([header, ...chunks], totalLength);
 }
 
 function renderIcns(artwork) {

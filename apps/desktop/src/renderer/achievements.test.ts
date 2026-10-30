@@ -51,6 +51,8 @@ function cloud(state: CloudStatus["profile"]["state"], automatic = true): CloudS
     accountId: state === "signed-out" ? null : "user_1",
     automatic,
     busy: false,
+    heldBack: [],
+    heldBackCount: 0,
     conflicts: [],
     error: null,
     lastCompleted: null,
@@ -105,9 +107,9 @@ describe("achievements", () => {
   it("describes the way to the next tier", () => {
     const at = (id: AchievementProgress["id"], level: number, value: number) => ({ id, level, earnedOn: "2026-07-01", value });
 
-    expect(nextTierText(at("tokens", 1, 6_200_000))).toBe("6.2M of 10M tokens");
+    expect(nextTierText(at("tokens", 1, 6_200_000))).toBe("6,200,000 of 10,000,000 tokens");
     expect(nextTierShare(at("tokens", 1, 6_200_000))).toBeCloseTo(0.62);
-    expect(nextTierText(at("big-day", 0, 0))).toBe("0 of 10M tokens");
+    expect(nextTierText(at("big-day", 0, 0))).toBe("0 of 10,000,000 tokens");
     expect(nextTierText(at("streak", 1, 12))).toBe("12 of 30 days");
     expect(nextTierText(at("active-days", 2, 250))).toBe("250 of 365 days");
     expect(nextTierText(at("tools", 0, 1))).toBe("1 of 2 tools");

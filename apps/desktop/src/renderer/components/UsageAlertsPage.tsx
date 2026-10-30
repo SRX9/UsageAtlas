@@ -1,17 +1,24 @@
-import { Card, Skeleton, Spinner, Switch } from "@heroui/react";
+import { Button, Card, Input, Label, Skeleton, Spinner, Switch, TextField } from "@heroui/react";
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { DashboardProvider, DashboardWindow } from "@usageatlas/contracts";
-import type { DesktopPreferences, UsageAlertRule } from "../../shared/desktop-api";
+import type { DesktopAlertInboxEntry, DesktopPreferences, TokenAlertPreferences, UsageAlertRule } from "../../shared/desktop-api";
 import { DEFAULT_USAGE_ALERT_THRESHOLD } from "../../shared/usage-alerts";
 import { formatReset } from "../dashboard-model";
 import { AlertIcon, BellIcon, CheckIcon } from "../icons";
+import { useI18n } from "../i18n";
 import { ProviderLogo } from "./ProviderLogo";
+import { UsageAlertDelivery } from "./UsageAlertDelivery";
 
 interface UsageAlertsPageProps {
   preferences: DesktopPreferences | null;
   providers: DashboardProvider[];
   saving: boolean;
   onUpdate: (patch: Partial<DesktopPreferences>) => Promise<void>;
+  /** Every alert this window has received, newest first. */
+  notifications?: DesktopAlertInboxEntry[];
+  onClearNotifications?: () => void;
+  /** Shows a real desktop notification so the user can confirm it arrives. */
+  onTestAlert?: (tokens: number, providerName: string) => Promise<boolean>;
 }
 
 interface UsageAlertWindowCardProps {
@@ -31,13 +38,20 @@ interface CircularThresholdPickerProps {
 }
 
 export function UsageAlertsPage({
+  notifications = [],
+  onClearNotifications,
   preferences,
   providers,
   saving,
   onUpdate,
+  onTestAlert,
 }: UsageAlertsPageProps) {
   const meteredProviders = providers.filter((provider) => provider.windows.length > 0);
+  const { t } = useI18n();
   const windowCount = meteredProviders.reduce((total, provider) => total + provider.windows.length, 0);
+  const tokenAlerts = preferences?.tokenAlerts ?? { enabled: true, thresholdTokens: 100_000 };
+  const sampleProvider = providers.find((provider) => provider.enabled)?.name ?? "Freebuff";
+  const sampleTokens = Math.max(tokenAlerts.thresholdTokens, 12_400);
   const activeAlertCount = preferences
     ? meteredProviders.reduce(
         (total, provider) =>
@@ -75,33 +89,75 @@ export function UsageAlertsPage({
     <div className="atlas-page atlas-alerts-page">
       <header className="atlas-page__header atlas-alerts-page__header">
         <div>
-          <p className="atlas-page__kicker">Notifications</p>
-          <h1>Usage alerts</h1>
-          <p>Choose exactly when UsageAtlas should warn you before a usage window runs out.</p>
+          <p className="atlas-page__kicker">{t("alerts.kicker")}</p>
+          <h1>{t("alerts.title")}</h1>
+          <p>{t("alerts.description")}</p>
         </div>
         <div className="atlas-alerts-page__save-status" role="status" aria-live="polite">
           {saving ? (
             <>
               <Spinner size="sm" />
-              <span>Saving changes</span>
+              <span>{t("alerts.saving")}</span>
             </>
           ) : (
-            <span>Changes save automatically</span>
+            <span>{t("alerts.autosave")}</span>
           )}
         </div>
       </header>
 
+      <Card className="atlas-alert-inbox" variant="transparent">
+        <Card.Header>
+          <Card.Title>{t("alerts.inbox.title")}</Card.Title>
+          <Card.Description>{t("alerts.inbox.description")}</Card.Description>
+        </Card.Header>
+        <Card.Content>
+          {notifications.length === 0 ? (
+            <p className="atlas-alert-inbox__empty">{t("alerts.inbox.empty")}</p>
+          ) : (
+            <ul className="atlas-alert-inbox__list">
+              {notifications.map((notification) => (
+                <li key={`${notification.receivedAt}-${notification.title}`} className="atlas-alert-inbox__item">
+                  <div className="atlas-alert-inbox__head">
+                    <strong>{notification.title}</strong>
+                    <time dateTime={notification.receivedAt}>
+                      {new Date(notification.receivedAt).toLocaleString()}
+                    </time>
+                  </div>
+                  <p>{notification.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {notifications.length > 0 && onClearNotifications ? (
+            <Button onPress={onClearNotifications} size="sm" variant="ghost">
+              {t("alerts.inbox.clear")}
+            </Button>
+          ) : null}
+        </Card.Content>
+      </Card>
+
       {!preferences ? (
         <AlertsPageSkeleton />
-      ) : meteredProviders.length === 0 ? (
-        <Card className="atlas-alerts-empty" variant="transparent">
-          <Card.Content>
-            <BellIcon aria-hidden />
-            <h2>No metered sources yet</h2>
-            <p>Connect a source with usage limits, then return here to create alerts.</p>
-          </Card.Content>
-        </Card>
       ) : (
+        <>
+          <TokenAlertCard
+            onTestAlert={onTestAlert}
+            onUpdate={onUpdate}
+            sampleProvider={sampleProvider}
+            sampleTokens={sampleTokens}
+            tokenAlerts={tokenAlerts}
+          />
+          <UsageAlertDelivery onUpdate={onUpdate} preferences={preferences} />
+          {meteredProviders.length === 0 ? (
+            <Card className="atlas-alerts-empty" variant="transparent">
+              <Card.Content>
+                <BellIcon aria-hidden />
+                <h2>{t("alerts.capacity.emptyTitle")}</h2>
+                <p>{t("alerts.capacity.emptyBody")}</p>
+              </Card.Content>
+            </Card>
+          ) : null}
+          {meteredProviders.length > 0 ? (
         <>
           <Card className="atlas-alerts-overview" variant="transparent">
             <Card.Content>
@@ -110,20 +166,17 @@ export function UsageAlertsPage({
                   <BellIcon />
                 </div>
                 <div>
-                  <h2>Your usage safety net</h2>
-                  <p>
-                    UsageAtlas sends one desktop notification per reset cycle when remaining usage
-                    crosses your chosen threshold.
-                  </p>
+                  <h2>{t("alerts.overview.title")}</h2>
+                  <p>{t("alerts.overview.description")}</p>
                 </div>
               </div>
               <dl className="atlas-alerts-overview__metrics">
                 <div>
-                  <dt>Active alerts</dt>
+                  <dt>{t("alerts.overview.active")}</dt>
                   <dd>{activeAlertCount}</dd>
                 </div>
                 <div>
-                  <dt>Usage windows</dt>
+                  <dt>{t("alerts.overview.windows")}</dt>
                   <dd>{windowCount}</dd>
                 </div>
               </dl>
@@ -150,7 +203,7 @@ export function UsageAlertsPage({
                     data-tone={provider.enabled ? "positive" : "neutral"}
                   >
                     {provider.enabled ? <CheckIcon /> : <AlertIcon />}
-                    <span>{provider.enabled ? "Connected" : "Disabled"}</span>
+                    <span>{t(provider.enabled ? "alerts.connected" : "alerts.disabled")}</span>
                   </span>
                 </div>
 
@@ -177,9 +230,108 @@ export function UsageAlertsPage({
             ))}
           </div>
         </>
+          ) : null}
+        </>
       )}
     </div>
   );
+}
+
+/**
+ * The alert that works for every source: a daily token count, announced with the
+ * exact number and the provider name. No quota window is required, so private
+ * and unofficial providers are covered too.
+ */
+function TokenAlertCard({
+  tokenAlerts,
+  sampleProvider,
+  sampleTokens,
+  onUpdate,
+  onTestAlert,
+}: {
+  tokenAlerts: TokenAlertPreferences;
+  sampleProvider: string;
+  sampleTokens: number;
+  onUpdate: (patch: Partial<DesktopPreferences>) => Promise<void>;
+  onTestAlert?: (tokens: number, providerName: string) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState(String(tokenAlerts.thresholdTokens));
+  const [tested, setTested] = useState<string | null>(null);
+  const commit = (raw: string): void => {
+    const parsed = Number(raw.replace(/[^0-9]/gu, ""));
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+      setDraft(String(tokenAlerts.thresholdTokens));
+      return;
+    }
+    const thresholdTokens = Math.min(1_000_000_000, Math.round(parsed));
+    setDraft(String(thresholdTokens));
+    if (thresholdTokens !== tokenAlerts.thresholdTokens) {
+      void onUpdate({ tokenAlerts: { ...tokenAlerts, thresholdTokens } });
+    }
+  };
+
+  return (
+    <Card className="atlas-token-alert" variant="transparent">
+      <Card.Header>
+        <div className="atlas-token-alert__heading">
+          <div>
+            <Card.Title>{t("alerts.daily.title")}</Card.Title>
+            <Card.Description>{t("alerts.daily.description")}</Card.Description>
+          </div>
+          <Switch
+            aria-label={t("alerts.daily.switch")}
+            isSelected={tokenAlerts.enabled}
+            onChange={(enabled) => void onUpdate({ tokenAlerts: { ...tokenAlerts, enabled } })}
+          >
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch.Content>
+          </Switch>
+        </div>
+      </Card.Header>
+      <Card.Content>
+        <div className="atlas-token-alert__body">
+          <TextField isDisabled={!tokenAlerts.enabled}>
+            <Label>{t("alerts.daily.after")}</Label>
+            <Input
+              inputMode="numeric"
+              onBlur={(event) => commit(event.target.value)}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") commit(event.currentTarget.value);
+              }}
+              value={draft}
+            />
+          </TextField>
+          <p className="atlas-token-alert__unit">{t("alerts.daily.unit")}</p>
+          <div className="atlas-token-alert__sample">
+            <span>{t("alerts.daily.preview")}</span>
+            <strong>{t("alerts.daily.message", { tokens: formatTokens(sampleTokens), provider: sampleProvider })}</strong>
+          </div>
+          {onTestAlert ? (
+            <Button
+              onPress={async () => {
+                const shown = await onTestAlert(sampleTokens, sampleProvider);
+                setTested(t(shown ? "alerts.daily.sent" : "alerts.daily.unavailable"));
+              }}
+              variant="outline"
+            >
+              <BellIcon />
+              <span>{t("alerts.daily.test")}</span>
+            </Button>
+          ) : null}
+          <p aria-live="polite" className="atlas-token-alert__status">{tested ?? ""}</p>
+        </div>
+      </Card.Content>
+    </Card>
+  );
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
 }
 
 function UsageAlertWindowCard({
@@ -189,14 +341,15 @@ function UsageAlertWindowCard({
   sourceDisabled,
   onChange,
 }: UsageAlertWindowCardProps) {
+  const { t } = useI18n();
   const thresholdReached = rule.enabled && window.remainingPercent <= rule.thresholdPercent;
   const status = sourceDisabled
-    ? { label: "Source disabled", tone: "neutral" }
+    ? { label: t("alerts.sourceDisabled"), tone: "neutral" }
     : !rule.enabled
-      ? { label: "Alert off", tone: "neutral" }
+      ? { label: t("alerts.alertOff"), tone: "neutral" }
       : thresholdReached
-        ? { label: "Threshold reached", tone: "warning" }
-        : { label: "Watching", tone: "positive" };
+        ? { label: t("alerts.thresholdReached"), tone: "warning" }
+        : { label: t("alerts.watching"), tone: "positive" };
 
   return (
     <Card className="atlas-alert-window-card" data-enabled={rule.enabled}>
@@ -233,15 +386,15 @@ function UsageAlertWindowCard({
             {status.label}
           </span>
           <div className="atlas-alert-rule-copy">
-            <p className="atlas-alert-rule-copy__eyebrow">Notification rule</p>
+            <p className="atlas-alert-rule-copy__eyebrow">{t("alerts.rule")}</p>
             <p>
               {rule.enabled
-                ? `Alert me when remaining capacity reaches ${rule.thresholdPercent}%.`
-                : "Turn on this alert to start monitoring the window."}
+                ? t("alerts.ruleOn", { percent: rule.thresholdPercent })
+                : t("alerts.ruleOff")}
             </p>
           </div>
           <div className="atlas-alert-current-capacity">
-            <span>Current capacity</span>
+            <span>{t("alerts.capacity")}</span>
             <strong>{formatPercent(window.remainingPercent)}%</strong>
           </div>
         </div>

@@ -1,6 +1,6 @@
 # Quota providers
 
-Added September 28, 2026. Warp, Kimi Code, Kilo Code, GitHub Copilot, Factory / Droid, Amp, and Qoder report current allowances or balances. They appear in Settings, capacity meters, the tray, and usage alerts when an allowance is known. The Limits page also shows their native counters.
+Added September 28, 2026. Warp, Kimi Code, Kilo Code, GitHub Copilot, Factory / Droid, Amp, Qoder, and z.ai / GLM report current allowances or balances. They appear in Settings, capacity meters, the tray, and usage alerts when an allowance is known. The Limits page also shows their native counters.
 
 These integrations do not collect per-request token, project, model, session, or dollar-spend history. A remaining dollar balance is not money spent. No zero-token history rows are created to fill that gap.
 
@@ -21,6 +21,7 @@ Environment credentials are read from the process that started UsageAtlas. Resta
 | Factory / Droid | Factory API key or `FACTORY_API_KEY`; otherwise `FACTORY_API_KEY` in `~/.factory/.env`. | Independent Standard and Core five-hour, weekly and monthly windows, extra balance in USD, or supported legacy Standard/Premium billing counters. |
 | Amp | Access token created in Amp settings, or `AMP_API_KEY`. | Free allowance, Agent dollars, Orb hours, individual balance and separate workspace balances. Legacy percentage subscription output is also supported. |
 | Qoder | The Cookie header value from the account usage request, or `QODER_COOKIE`. `QODER_REGION=global` or `china`; global is the default. | Personal and shared credits used, allowance, remaining balance and reported reset. Credentials go only to the selected `qoder.com` or `qoder.com.cn` site. |
+| z.ai / GLM | API key from the z.ai console, or `ZAI_API_KEY`. `ZAI_REGION=global` or `china`; global is the default. | Coding Plan five-hour and weekly token or credit windows, remaining allowance and reported reset, plus the plan level. Credentials go only to `api.z.ai` or `open.bigmodel.cn`. MCP time limits are not collected. |
 
 Settings accepts only a key, token, or Cookie header value. It does not accept a cURL command or request URL. Copilot device OAuth, browser cookie import, Amp CLI execution, Kimi CLI OAuth, Factory browser/WorkOS login, and Kilo organization discovery are not implemented in this phase.
 
@@ -33,6 +34,7 @@ Settings accepts only a key, token, or Cookie header value. It does not accept a
 - Factory cents become USD. User tokens are not divided by an organization allowance. Legacy out-of-range `usedRatio` values have an ambiguous scale, so explicit counters take precedence in that case. Allowances above one trillion are treated as upstream unlimited sentinels and withheld. No reference-token percentage is invented.
 - Amp calculates Tier usage from dollar and hour balances, not rounded percentages. Orb hours stay separate from dollars. Date-only Tier periods use UTC day boundaries and are approximate within a day. Daily Free resets follow 8 PM New York time. Rounded legacy renewal durations and hourly replenishment estimates are not used for reset alerts.
 - Qoder shared credits are a separate pool and are not added to the personal total.
+- z.ai reports each window as `usage` (the allowance) and `currentValue` (used), with `nextResetTime` in milliseconds. The unit is tokens for `TOKENS_LIMIT` and credits for `CREDIT_LIMIT`, and the API's `percentage` is used only when both counts are absent. Entries with no recognised Coding Plan window (`unit` 3 and `number` 5, or `unit` 6 and `number` 1) are withheld, and an envelope rejected with HTTP 200 is treated as an authentication error rather than an empty allowance.
 
 Meters clamp to 0–100%. Native counters retain reported overage where available. Unknown values remain `null`, not zero. Missing or unrecognized pools are omitted; an entirely unrecognized response becomes a provider error.
 
@@ -52,4 +54,4 @@ Implementation was checked against [CodexBar's provider source at commit f795611
 
 Automated checks cover provider response formats, units, missing fields, reset rules, credential scope, transport failures, encrypted-store behavior, SQLite persistence, cloud validation and restore, and absence of fabricated usage history. Existing provider tests remain part of the full suite.
 
-Live authenticated parity has not been verified for these seven accounts. Several endpoints are internal and can change. A changed response format must produce an error or omit an unknown field instead of guessing a usable allowance. The provider audit records future follow-up work.
+Live authenticated parity has not been verified for these accounts. Several endpoints are internal and can change. A changed response format must produce an error or omit an unknown field instead of guessing a usable allowance. The provider audit records future follow-up work.

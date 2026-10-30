@@ -5,6 +5,12 @@ import type { EngineManager } from "./engine-manager";
 type DashboardEngine = Pick<EngineManager,
   "getHydratedSnapshot" | "getSnapshot" | "refreshAll" | "setProviderEnabled">;
 
+/**
+ * A refresh reports twice per provider, and every publication re-renders the page.
+ * The toolbar only shows the latest state, so intermediate ticks are dropped.
+ */
+const PROGRESS_INTERVAL_MS = 200;
+
 /** Owns publication as well as collection, so replies from a previous account cannot escape. */
 export class DashboardSession {
   private state: DashboardState = {
@@ -19,6 +25,7 @@ export class DashboardSession {
   private running: Promise<DashboardState> | null = null;
   private hydrating: Promise<void> | null = null;
   private historyDirty = false;
+  private progressPublishedAt = 0;
 
   constructor(
     private readonly engine: DashboardEngine,
@@ -107,6 +114,10 @@ export class DashboardSession {
 
   progress(progress: RefreshProgress): void {
     if (this.configuration || !this.running) return;
+    const now = Date.now();
+    const finished = progress.completed >= progress.total;
+    if (!finished && now - this.progressPublishedAt < PROGRESS_INTERVAL_MS) return;
+    this.progressPublishedAt = now;
     this.publish({ progress });
   }
 

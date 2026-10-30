@@ -31,6 +31,10 @@ export interface AnalyticsScanContext {
   now: Date;
   historyDays?: number;
   timeZone?: string;
+  /** Additional JSONL roots from Settings; mounted remote paths are just paths here. */
+  extraLogPaths?: string[];
+  /** Case-insensitive project path fragments excluded before totals are built. */
+  ignoredProjects?: string[];
 }
 
 export interface AnalyticsScanner {
@@ -140,7 +144,7 @@ export class LocalUsageScanner implements AnalyticsScanner {
       this.cache.clear();
       this.catalogRevision = catalog.revision;
     }
-    const roots = localUsageRoots(provider, this.environment, this.homeDirectory);
+    const roots = localUsageRoots(provider, this.environment, this.homeDirectory, context.extraLogPaths ?? []);
     const discovery = await discoverJsonlFiles(roots, this.maxFiles, context.signal);
     const activeFiles = new Set(discovery.files);
     for (const cachedPath of this.cache.keys()) {
@@ -177,7 +181,14 @@ export class LocalUsageScanner implements AnalyticsScanner {
     }
 
     const skippedLines = parsed.reduce((total, entry) => total + (entry?.skippedLines ?? 0), 0);
-    const records = deduplicateRecords(parsed.flatMap((entry) => entry?.records ?? []));
+    const ignored = (context.ignoredProjects ?? [])
+      .map((fragment) => fragment.trim().toLowerCase())
+      .filter(Boolean);
+    const records = deduplicateRecords(parsed.flatMap((entry) => entry?.records ?? []))
+      .filter((record) => ignored.length === 0 || !ignored.some((fragment) => (
+        (record.projectPath ?? "").toLowerCase().includes(fragment)
+        || (record.projectLabel ?? "").toLowerCase().includes(fragment)
+      )));
     const gaps: ScanGaps = {
       unreadableDirectories: discovery.errors,
       unreadableFiles,
@@ -289,11 +300,21 @@ export function unavailableAnalytics(
 function localUsageRoots(
   provider: AnalyticsProvider,
   environment: NodeJS.ProcessEnv,
-  homeDirectory: string
+  homeDirectory: string,
+  extraPaths: string[] = []
 ): string[] {
   if (provider === "codex") {
     const root = nonEmpty(environment.CODEX_HOME) ?? path.join(homeDirectory, ".codex");
-    return [path.join(root, "sessions"), path.join(root, "archived_sessions")];
+    return [...new Set([
+      path.join(root, "sessions"),
+      path.join(root, "archived_sessions"),
+      ...extraPaths.flatMap((entry) => {
+        const resolved = path.resolve(entry);
+        return ["sessions", "archived_sessions"].includes(path.basename(resolved).toLowerCase())
+          ? [resolved]
+          : [path.join(resolved, "sessions"), path.join(resolved, "archived_sessions")];
+      })
+    ])];
   }
 
   const configured = nonEmpty(environment.CLAUDE_CONFIG_DIR);
@@ -316,6 +337,11 @@ function localUsageRoots(
     path.join(homeDirectory, "Library", "Application Support", "Claude", "local-agent-mode-sessions"),
     path.join(homeDirectory, "Library", "Application Support", "Claude", "claude-code-sessions")
   );
+  // Claude stores transcripts under `projects`; a user may point at either that
+  // folder or a config directory, so accept both shapes for extra roots too.
+  roots.push(...extraPaths.map((entry) => (
+    path.basename(entry).toLowerCase() === "projects" ? entry : path.join(entry, "projects")
+  )));
   return [...new Set(roots.map((root) => path.resolve(root)))];
 }
 

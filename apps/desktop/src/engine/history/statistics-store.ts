@@ -12,6 +12,18 @@ export function identifyFact<T extends UsageFact>(fact: T): T {
 export function checkFact(fact: unknown): UsageFact {
   return fingerprint(fact).fact;
 }
+/**
+ * False when a fact's content no longer matches its id, which means the payload
+ * was edited after it was fingerprinted.
+ */
+export function hasValidFingerprint(value: unknown): boolean {
+  try {
+    checkFact(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 interface Fingerprinted { fact: UsageFact; contentId: string | null }
 /** Checks a fact's id and fingerprints an event's content apart from its pricing catalog revision. */
 function fingerprint(value: unknown): Fingerprinted {
@@ -24,23 +36,34 @@ function fingerprint(value: unknown): Fingerprinted {
   return { fact, contentId: hash(content.replace(`"pricingVersion":${JSON.stringify(fact.pricingVersion)}`, `"pricingVersion":null`)) };
 }
 
+/**
+ * How long a saved observation keeps its payload. Past this, the event is only
+ * remembered by its content id, which is all a rescan needs to avoid uploading
+ * it a second time. The day record already holds its totals, so a week of
+ * request detail is enough to answer "what just ran" without keeping a second
+ * full history.
+ */
+const SAVED_EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+
 /** Immutable numeric observations, independently recoverable from display summaries. */
 export class StatisticsStore {
   constructor(private readonly db: WritableSqliteDatabase, private readonly owner: () => string) {
     db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_event_seen (
+        owner TEXT NOT NULL, event_id TEXT NOT NULL, content_id TEXT NOT NULL,
+        PRIMARY KEY(owner,event_id,content_id)
+      );
       CREATE TABLE IF NOT EXISTS usage_fact (
         owner TEXT NOT NULL, id TEXT NOT NULL, source_id TEXT NOT NULL,
         kind TEXT NOT NULL, provider TEXT NOT NULL, occurred_at TEXT NOT NULL,
         event_id TEXT, model TEXT, project_id TEXT, session_id TEXT,
         payload TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0 CHECK (saved IN (0,1)),
-        content_id TEXT,
+        content_id TEXT, reported TEXT,
         PRIMARY KEY(owner,id)
       );
       CREATE INDEX IF NOT EXISTS usage_fact_pending ON usage_fact(owner,id) WHERE saved = 0;
       CREATE INDEX IF NOT EXISTS usage_fact_time ON usage_fact(owner,provider,occurred_at);
-      CREATE INDEX IF NOT EXISTS usage_fact_model ON usage_fact(owner,model,occurred_at);
       CREATE INDEX IF NOT EXISTS usage_fact_event ON usage_fact(owner,event_id);
-      CREATE INDEX IF NOT EXISTS usage_fact_project ON usage_fact(owner,project_id,occurred_at);
       CREATE VIEW IF NOT EXISTS usage_event_latest AS
         SELECT * FROM (
           SELECT f.*, COUNT(*) OVER (PARTITION BY owner,event_id) AS observation_versions,
@@ -51,6 +74,89 @@ export class StatisticsStore {
     `);
     if (!db.all("PRAGMA table_info(usage_fact)").some(column => column.name === "content_id"))
       db.exec("ALTER TABLE usage_fact ADD COLUMN content_id TEXT");
+    if (!db.all("PRAGMA table_info(usage_fact)").some(column => column.name === "reported"))
+      db.exec("ALTER TABLE usage_fact ADD COLUMN reported TEXT");
+    // Two indexes indexed columns no query in this app filters on, and together
+    // they weighed more than the facts they pointed at. The documented view stays
+    // the way to read history by model or project.
+    db.exec("DROP INDEX IF EXISTS usage_fact_model; DROP INDEX IF EXISTS usage_fact_project");
+  }
+  /**
+   * Keeps the ledger an outbox rather than a second history.
+   *
+   * `collection` and `capacity` facts are snapshots: only the newest one per
+   * source and day (collection) or per source (capacity) can ever be uploaded or
+   * shown, and older copies are deleted as soon as a newer one lands. Saved
+   * events older than the retention window keep their fingerprint in
+   * `usage_event_seen`, so a rescan stays idempotent without its payload.
+   */
+  compact(now = Date.now()): number {
+    const cutoff = new Date(now - SAVED_EVENT_RETENTION_MS).toISOString();
+    this.db.run(
+      `INSERT OR IGNORE INTO usage_event_seen(owner,event_id,content_id)
+       SELECT owner,event_id,content_id FROM usage_fact
+       WHERE kind = 'usage_event' AND saved = 1 AND content_id IS NOT NULL AND occurred_at < ?`,
+      [cutoff]
+    );
+    const before = Number(this.db.get("SELECT COUNT(*) AS count FROM usage_fact")?.count ?? 0);
+    this.db.run(
+      `DELETE FROM usage_fact WHERE kind = 'usage_event' AND saved = 1 AND content_id IS NOT NULL AND occurred_at < ?`,
+      [cutoff]
+    );
+    // Provenance is upload-only: once the server holds a collection or capacity
+    // snapshot, keeping a second copy here only grows the local file. A failed
+    // save leaves saved = 0, so nothing is lost before it is acknowledged.
+    this.db.run("DELETE FROM usage_fact WHERE kind IN ('collection', 'capacity') AND saved = 1");
+    this.pruneProvenance();
+    const after = Number(this.db.get("SELECT COUNT(*) AS count FROM usage_fact")?.count ?? 0);
+    return before - after;
+  }
+  /** Drops superseded scan and quota snapshots, newest per key wins. */
+  private pruneProvenance(): void {
+    this.db.run(`DELETE FROM usage_fact WHERE kind = 'collection' AND rowid NOT IN (
+      SELECT max(rowid) FROM usage_fact WHERE kind = 'collection'
+      GROUP BY owner, provider, source_id, substr(occurred_at, 1, 10))`);
+    this.db.run(`DELETE FROM usage_fact WHERE kind = 'capacity' AND rowid NOT IN (
+      SELECT max(rowid) FROM usage_fact WHERE kind = 'capacity'
+      GROUP BY owner, provider, source_id)`);
+  }
+  /**
+   * Files a repriced version of every event whose stored estimate does not match
+   * one blended rate. Each version keeps its event id and gets a fresh
+   * observation time, so the cloud replaces the old estimate instead of adding
+   * a second request. Returns how many events changed.
+   */
+  reprice(ratePerMillion: number, observedAt = new Date().toISOString()): number {
+    if (!Number.isFinite(ratePerMillion) || ratePerMillion <= 0) return 0;
+    const rows = this.db.all(
+      `SELECT payload FROM usage_event_latest
+       WHERE json_extract(payload, '$.totals.totalTokens') > 0`
+    );
+    let changed = 0;
+    for (const row of rows) {
+      let fact: UsageEventFact;
+      try {
+        fact = JSON.parse(String(row.payload)) as UsageEventFact;
+      } catch {
+        continue;
+      }
+      if (!fact.totals) continue;
+      const estimatedCostMicrosUSD = Math.round(fact.totals.totalTokens * ratePerMillion);
+      const estimatedCostUSD = estimatedCostMicrosUSD / 1_000_000;
+      if (fact.totals.estimatedCostMicrosUSD === estimatedCostMicrosUSD
+        && fact.totals.unpricedTokens === 0
+        && fact.estimatedCostUSD === estimatedCostUSD) continue;
+      this.put(identifyFact({
+        ...fact,
+        id: "",
+        observedAt,
+        totals: { ...fact.totals, estimatedCostMicrosUSD, unpricedTokens: 0 },
+        estimatedCostUSD,
+        pricingVersion: `blended:${ratePerMillion}`
+      }));
+      changed += 1;
+    }
+    return changed;
   }
   put(fact: UsageFact, saved = false, owner = this.owner()): void {
     const checked = fingerprint(fact);
@@ -63,7 +169,20 @@ export class StatisticsStore {
     this.db.run(operation.sql, operation.parameters);
     const inserted = this.db.get("SELECT changes() AS changes, last_insert_rowid() AS rowid");
     if (saved) this.db.run("UPDATE usage_fact SET saved = 1 WHERE owner = ? AND id = ?", [owner, checked.fact.id]);
-    return inserted?.changes ? Number(inserted.rowid) : null;
+    if (!inserted?.changes) return null;
+    const rowid = Number(inserted.rowid);
+    // A newer snapshot replaces its predecessor right away, instead of waiting for
+    // the next launch to compact a scan that runs every few minutes.
+    if (checked.fact.kind === "collection")
+      this.db.run(`DELETE FROM usage_fact WHERE owner = ? AND provider = ? AND source_id = ?
+        AND kind = 'collection' AND substr(occurred_at, 1, 10) = substr(?, 1, 10)
+        AND rowid <> ? AND occurred_at <= ?`, [owner, checked.fact.providerId, checked.fact.sourceId,
+        checked.fact.observedAt, rowid, checked.fact.observedAt]);
+    else if (checked.fact.kind === "capacity")
+      this.db.run(`DELETE FROM usage_fact WHERE owner = ? AND provider = ? AND source_id = ?
+        AND kind = 'capacity' AND rowid <> ? AND occurred_at <= ?`, [owner, checked.fact.providerId,
+        checked.fact.sourceId, rowid, checked.fact.observedAt]);
+    return rowid;
   }
   /**
    * Scans add versions in observation order, so the newest version of an event has the highest rowid.
@@ -133,8 +252,19 @@ export class StatisticsStore {
       ...(live.quotaMetrics ? { quotaMetrics: live.quotaMetrics } : {}),
       windows: live.windows.map(w => ({ kind: w.kind, label: w.label, usedPercent: w.usedPercent, resetAt: w.resetAt ?? null })) }));
   }
-  pending(): UsageFact[] {
-    const rows = this.db.all("SELECT payload FROM usage_fact WHERE owner = ? AND saved = 0 ORDER BY id LIMIT ?", [this.owner(), STATISTICS_BATCH_SIZE]);
+  /**
+   * Pending observations, optionally limited to providers the server accepts.
+   * Narrowing the query rather than filtering the batch keeps one unsupported
+   * source from hiding the sources that can be saved.
+   */
+  pending(providers?: readonly string[]): UsageFact[] {
+    // An explicitly empty scope means nothing is uploadable, not everything.
+    if (providers && !providers.length) return [];
+    const scope = providers ? ` AND provider IN (${providers.map(() => "?").join(",")})` : "";
+    const rows = this.db.all(
+      `SELECT payload FROM usage_fact WHERE owner = ? AND saved = 0${scope} ORDER BY id LIMIT ?`,
+      [this.owner(), ...(providers ?? []), STATISTICS_BATCH_SIZE]
+    );
     const facts: UsageFact[] = []; let bytes = 0;
     for (const row of rows) {
       const fact = checkFact(JSON.parse(String(row.payload)));
@@ -148,8 +278,20 @@ export class StatisticsStore {
   acknowledge(ids: string[]): void {
     for (const id of ids) this.db.run("UPDATE usage_fact SET saved = 1 WHERE owner = ? AND id = ?", [this.owner(), id]);
   }
-  pendingCount(): number {
-    return Number(this.db.get("SELECT COUNT(*) AS count FROM usage_fact WHERE owner IN (?, '') AND saved = 0", [this.owner()])?.count ?? 0);
+  pendingCount(providers?: readonly string[]): number {
+    // An explicitly empty scope means nothing is uploadable, not everything.
+    if (providers && !providers.length) return 0;
+    const scope = providers ? ` AND provider IN (${providers.map(() => "?").join(",")})` : "";
+    return Number(this.db.get(
+      `SELECT COUNT(*) AS count FROM usage_fact WHERE owner IN (?, '') AND saved = 0${scope}`,
+      [this.owner(), ...(providers ?? [])]
+    )?.count ?? 0);
+  }
+  /** Providers of the observations still waiting to be saved, in stable order. */
+  pendingProviders(): string[] {
+    return this.db
+      .all("SELECT DISTINCT provider FROM usage_fact WHERE owner IN (?, '') AND saved = 0 ORDER BY provider", [this.owner()])
+      .map((row) => String(row.provider));
   }
   /** Deletes pending events that repeat their previous version apart from the pricing catalog revision. */
   async dropRepricedCopies(stopped: () => boolean): Promise<void> {
@@ -190,10 +332,13 @@ export class StatisticsStore {
 // text: json_set keeps their key order, which matches facts this device collected.
 const withoutRepricing = (payload: string) => `json_set(${payload}, '$.id', '', '$.observedAt', '', '$.pricingVersion', NULL)`;
 /** Whether a fact repeats the newest version of its event stored below `before` (a rowid), apart from repricing. */
-const repeatsVersion = (contentId: string, payload: string, event: string, before?: string) => `EXISTS (SELECT 1 FROM usage_fact p
-  WHERE p.rowid = (SELECT v.rowid FROM usage_fact v WHERE v.owner = ?1 AND v.event_id = ${event}${before ? ` AND v.rowid < ${before}` : ""}
-    ORDER BY v.rowid DESC LIMIT 1)
-  AND (p.content_id = ${contentId} OR ${withoutRepricing("p.payload")} = ${withoutRepricing(payload)}))`;
+const repeatsVersion = (contentId: string, payload: string, event: string, before?: string) => `(
+  EXISTS (SELECT 1 FROM usage_fact p
+    WHERE p.rowid = (SELECT v.rowid FROM usage_fact v WHERE v.owner = ?1 AND v.event_id = ${event}${before ? ` AND v.rowid < ${before}` : ""}
+      ORDER BY v.rowid DESC LIMIT 1)
+    AND (p.content_id = ${contentId} OR ${withoutRepricing("p.payload")} = ${withoutRepricing(payload)}))
+  OR EXISTS (SELECT 1 FROM usage_event_seen m
+    WHERE m.owner = ?1 AND m.event_id = ${event} AND m.content_id = ${contentId}))`;
 
 function insertOperation({ fact: r, contentId }: Fingerprinted, owner: string, saved: boolean): SqliteOperation {
   const event = r.kind === "usage_event" ? r : null;

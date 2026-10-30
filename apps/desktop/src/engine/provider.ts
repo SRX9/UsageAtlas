@@ -9,6 +9,10 @@ export interface ProviderContext {
   /** Preferred lookback once the adapter knows the login identity. */
   historyDaysForAccount(accountKey: string): number;
   reportingTimeZoneForAccount?(accountKey: string): string | undefined;
+  /** Additional JSONL roots chosen in Settings, including mounted remote paths. */
+  extraLogPaths?: string[];
+  /** Path fragments excluded before a record reaches any total. */
+  ignoredProjects?: string[];
 }
 
 export type ProviderRefreshResult = Omit<DashboardProvider, "id" | "name" | "enabled"> & {

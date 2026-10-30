@@ -5,6 +5,7 @@ import type {
   UsageTotals
 } from "@usageatlas/contracts";
 import { sumUsageTotals } from "./dashboard-model";
+import { formatCompactNumber } from "./number-format";
 
 export type AnalyticsRange = 7 | 30 | 90 | "all";
 export type ProviderScope = "all" | string;
@@ -359,7 +360,7 @@ function costBasis(providerIDs: string[]): CostBasis {
 }
 
 function formatTokenCount(value: number): string {
-  return tokenCountFormatter.format(value);
+  return formatCompactNumber(value);
 }
 
 function joinNames(names: string[]): string {
@@ -368,7 +369,3 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
 
-const tokenCountFormatter = new Intl.NumberFormat(undefined, {
-  notation: "compact",
-  maximumFractionDigits: 1
-});

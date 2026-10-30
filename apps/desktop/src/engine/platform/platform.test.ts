@@ -21,10 +21,13 @@ describe("engine platform services", () => {
     const file = path.join(directory, "history.sqlite");
     const db = openWritableSqlite(file);
     try {
-      await vi.waitFor(() => expect(db.get("PRAGMA wal_autocheckpoint")?.wal_autocheckpoint).toBe(0));
+      // Opening alone must not take a second connection: a store's one-time VACUUM needs the file.
+      expect(db.get("PRAGMA wal_autocheckpoint")?.wal_autocheckpoint).toBe(1000);
       expect(db.get("PRAGMA synchronous")?.synchronous).toBe(2);
       db.exec("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)");
       await db.commit(Array.from({ length: 1000 }, (_, i) => ({ sql: "INSERT INTO sample VALUES (?, ?)", parameters: [i, "x".repeat(1024)] })));
+      // The first batch opens the writer, which then owns the checkpointing.
+      await vi.waitFor(() => expect(db.get("PRAGMA wal_autocheckpoint")?.wal_autocheckpoint).toBe(0));
       await expect(db.commit([
         { sql: "INSERT INTO sample VALUES (?, ?)", parameters: [1000, "rollback"] },
         { sql: "INSERT INTO missing_table VALUES (1)", parameters: [] }
