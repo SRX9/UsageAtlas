@@ -3,6 +3,7 @@ import type { EngineStatus, UsageAtlasDesktopAPI } from "../shared/desktop-api";
 import { IPC } from "../shared/desktop-api";
 
 const api: UsageAtlasDesktopAPI = {
+  platform: process.platform,
   getProviderCredentials: () => ipcRenderer.invoke(IPC.getProviderCredentials),
   setProviderCredential: (provider, credential) => ipcRenderer.invoke(IPC.setProviderCredential, provider, credential),
   getUpdateState: () => ipcRenderer.invoke(IPC.getUpdateState),

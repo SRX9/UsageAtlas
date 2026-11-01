@@ -99,6 +99,8 @@ export interface DashboardState {
 }
 
 export interface UsageAtlasDesktopAPI {
+  /** Lets the renderer leave room for the native window controls. */
+  platform: NodeJS.Platform;
   getProviderCredentials(): Promise<Record<string, ProviderCredentialStatus>>;
   setProviderCredential(provider: QuotaProviderId, credential: ProviderCredential | null): Promise<Record<string, ProviderCredentialStatus>>;
   getUpdateState(): Promise<DesktopUpdateState>;

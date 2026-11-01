@@ -21,6 +21,9 @@ function applySystemTheme(): void {
 applySystemTheme();
 systemDark.addEventListener("change", applySystemTheme);
 
+// The title bar insets differ: traffic lights sit left on macOS, caption buttons right elsewhere.
+document.documentElement.dataset.platform = window.usageAtlas.platform;
+
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing renderer root");
 // Toasts sit outside the shell, whose glass panels would otherwise anchor them.

@@ -272,6 +272,11 @@
   user-select: none;
 }
 
+/* macOS hiddenInset traffic lights end ~72px from the window edge; keep the brand clear of them. */
+:root[data-platform="darwin"] .atlas-app-shell__titlebar {
+  padding-inline: calc(86px - var(--atlas-shell-padding)) 4px;
+}
+
 .atlas-app-shell__brand {
   display: inline-flex;
   min-width: 0;
