@@ -11,6 +11,7 @@ import { BUILT_IN_WALLPAPERS } from "../wallpapers";
 import { ProviderLogo } from "./ProviderLogo";
 import { ProviderCredentialForm } from "./ProviderCredentialForm";
 import { isQuotaProvider } from "../../shared/quota-providers";
+import { fromApp } from "../../shared/website-links";
 
 interface SettingsProps {
   updateState: DesktopUpdateState | null;
@@ -267,7 +268,7 @@ export function Settings({
             </div>
             <Button
               className="sm:ms-auto"
-              onPress={() => void onOpenExternal("https://usageatlas.com")}
+              onPress={() => void onOpenExternal(fromApp("https://usageatlas.com", "settings"))}
               variant="ghost"
             >
               <span>Open documentation</span>

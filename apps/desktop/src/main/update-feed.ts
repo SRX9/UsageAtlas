@@ -1,6 +1,8 @@
+import { fromApp } from "../shared/website-links";
+
 export const UPDATE_BASE_URL = "https://updates.usageatlas.com";
 export const LATEST_RELEASE_URL = `${UPDATE_BASE_URL}/latest.json`;
-export const DOWNLOAD_PAGE_URL = "https://usageatlas.com/#download";
+export const DOWNLOAD_PAGE_URL = fromApp("https://usageatlas.com/#download", "update");
 
 /**
  * Squirrel.Mac installs whatever a 200 response points at without comparing

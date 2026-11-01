@@ -1,12 +1,13 @@
 import type { DashboardSnapshot } from "@usageatlas/contracts";
 import type { CloudProfileStatus, LeaderboardGlance } from "../shared/desktop-api";
 import type { PromptTriggerKind } from "../shared/growth-events";
+import { fromApp } from "../shared/website-links";
 import { formatCompactNumber } from "./number-format";
 import { buildPeriodUsage, inclusiveDayCount, periodBounds, shiftDay, type UsageDay } from "./personal-analytics";
 import { buildModelMix } from "./usage-insights";
 
 export const PROFILE_SITE = "https://usageatlas.com";
-export const LEADERBOARD_URL = `${PROFILE_SITE}/leaderboard`;
+export const LEADERBOARD_URL = fromApp(`${PROFILE_SITE}/leaderboard`, "profile");
 /** The website ranks the last 30 days, today included, by default. */
 const LEADERBOARD_DAYS = 30;
 /** The website's handle rules (`cloud/apps/web/lib/public-profile.ts`). */
