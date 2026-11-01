@@ -27,6 +27,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { isLimitKey } from "../shared/capacity-model";
+import { providerHasUsage } from "../shared/cached-snapshot";
 import { DashboardSession } from "./dashboard-session";
 import type { AppRoute, DesktopPreferences } from "../shared/desktop-api";
 import { IPC, isBackgroundImagePreference } from "../shared/desktop-api";
@@ -81,6 +82,7 @@ let lastTraySnapshot: DashboardSnapshot | null = null;
 let usageCheckTimer: NodeJS.Timeout | null = null;
 let profileCheckTimer: NodeJS.Timeout | null = null;
 let profileStatusReported = false;
+let usageScanReported = false;
 let isQuitting = false;
 let installPendingUpdate: (() => void) | null = null;
 let engine: EngineManager;
@@ -492,6 +494,18 @@ function reportProfile(accountId: string, profile: KnownProfileStatus): void {
     telemetry.capture("profile_published", { previous_state: previous });
 }
 
+/** Reports once per launch how many enabled tools the first full read found usage for. */
+function reportUsageScan(snapshot: DashboardSnapshot): void {
+  if (usageScanReported) return;
+  usageScanReported = true;
+  const enabled = snapshot.providers.filter(provider => provider.enabled);
+  telemetry.capture("desktop_usage_scanned", {
+    tools_enabled: enabled.length,
+    tools_with_usage: enabled.filter(providerHasUsage).length,
+    tools_failed: enabled.filter(provider => provider.error).length
+  });
+}
+
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
   const frame = event.senderFrame;
   if (!frame || frame !== frame.top || !isTrustedRendererURL(frame.url)) {
@@ -575,9 +589,35 @@ async function registerApplicationProtocol(): Promise<void> {
   });
 }
 
+/**
+ * Squirrel.Mac cannot replace an app running from the disk image or a
+ * translocated download, and the login item would point at a path that goes
+ * away. Returns true when the app is moving and will relaunch from Applications.
+ */
+async function offerMoveToApplications(): Promise<boolean> {
+  if (process.platform !== "darwin" || !app.isPackaged || app.isInApplicationsFolder()) return false;
+  if (process.env.USAGEATLAS_SMOKE_TEST === "1") return false;
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    buttons: ["Move to Applications", "Not Now"],
+    defaultId: 0,
+    cancelId: 1,
+    message: "Move UsageAtlas to your Applications folder?",
+    detail: "Running from Applications keeps updates and launch at login working."
+  });
+  if (response !== 0) return false;
+  try {
+    return app.moveToApplicationsFolder();
+  } catch (error) {
+    dialog.showErrorBox("UsageAtlas could not be moved", error instanceof Error ? error.message : "Drag it to the Applications folder in Finder.");
+    return false;
+  }
+}
+
 if (squirrelStartup) {
   app.quit();
 } else void app.whenReady().then(async () => {
+  if (await offerMoveToApplications()) return;
   if (process.platform === "darwin") app.dock?.setIcon(loadRuntimeLogo());
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -601,11 +641,12 @@ if (squirrelStartup) {
   }, snapshot => {
     const alerts = usageAlertEvaluator.evaluate(snapshot, preferences.get().usageAlerts);
     for (const alert of alerts) showUsageNotification(alert);
+    reportUsageScan(snapshot);
   });
   engine.onProgress(progress => dashboard.progress(progress));
   engine.onImportProgress(message => dashboard.importProgress(message.accountId, message.progress));
   cloudAccount = new CloudAccount(engine, (accountId, configure, reconnect) =>
-    dashboard.configure(accountId, configure, reconnect), reportProfile);
+    dashboard.configure(accountId, configure, reconnect), reportProfile, () => telemetry.capture("desktop_signed_in"));
   engine.onHistoryChanged(() => dashboard.historyChanged());
   await cloudAccount.initialize().catch(() => undefined);
   await configureProviderCredentials(providerCredentials, engine);
@@ -618,7 +659,7 @@ if (squirrelStartup) {
   registerIPC();
   createTray();
   mainWindow = createWindow();
-  telemetry.capture("desktop_app_opened");
+  telemetry.capture("desktop_app_opened", process.platform === "darwin" ? { in_applications_folder: app.isInApplicationsFolder() } : {});
   if (cloudAccount.profileStatus().state === "signed-out") {
     profileStatusReported = true;
     telemetry.capture("profile_status_checked", { state: "signed-out" });

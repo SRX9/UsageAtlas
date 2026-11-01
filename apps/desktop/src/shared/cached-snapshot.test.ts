@@ -11,6 +11,14 @@ describe("snapshotHasCachedUsage", () => {
     }))).toBe(true);
   });
 
+  it("ignores usage from a disabled provider", () => {
+    expect(snapshotHasCachedUsage(snapshot({
+      enabled: false,
+      windows: [],
+      analytics: { totals: { totalTokens: 40, requests: 1 }, daily: [] }
+    }))).toBe(false);
+  });
+
   it("is false when nothing has been stored yet", () => {
     expect(snapshotHasCachedUsage(snapshot({
       enabled: true,

@@ -43,6 +43,7 @@ export class CloudAccount {
       accountId: string, operation: () => Promise<unknown>, reconnect: boolean
     ) => Promise<unknown> = (_accountId, operation) => operation(),
     private readonly onProfile: (accountId: string, profile: KnownProfileStatus) => void = () => undefined,
+    private readonly onSignedIn: () => void = () => undefined,
   ) {}
   async initialize(): Promise<void> {
     try {
@@ -284,6 +285,7 @@ export class CloudAccount {
       await this.configure();
       if (this.login !== login) return;
       this.cancelLogin();
+      this.onSignedIn();
       void this.refreshProfile();
     } catch (error) {
       if (this.login !== login) return;
