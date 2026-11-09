@@ -80,7 +80,6 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let lastTraySnapshot: DashboardSnapshot | null = null;
 let usageCheckTimer: NodeJS.Timeout | null = null;
-let profileCheckTimer: NodeJS.Timeout | null = null;
 let profileStatusReported = false;
 let usageScanReported = false;
 let isQuitting = false;
@@ -219,6 +218,8 @@ function createWindow(route: AppRoute = "day"): BrowserWindow {
 function showWindow(route: AppRoute = "day"): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createWindow(route);
+    // A new window waits half an hour between focus checks, so it starts from a fresh profile.
+    void cloudAccount.refreshProfile();
   } else {
     mainWindow.show();
     mainWindow.focus();
@@ -664,10 +665,8 @@ if (squirrelStartup) {
     profileStatusReported = true;
     telemetry.capture("profile_status_checked", { state: "signed-out" });
   }
+  // The window asks again when it comes back to front. No timer: each check wakes the cloud database.
   void cloudAccount.refreshProfile();
-  // A profile published on the website shows up here within ten minutes.
-  profileCheckTimer = setInterval(() => void cloudAccount.refreshProfile(), 10 * 60_000);
-  profileCheckTimer.unref();
   updates = configureAutoUpdates({
     capture: (event) => telemetry.capture(event),
     onStateChange: (state) => {
@@ -698,8 +697,6 @@ app.on("before-quit", () => {
   isQuitting = true;
   if (usageCheckTimer) clearTimeout(usageCheckTimer);
   usageCheckTimer = null;
-  if (profileCheckTimer) clearInterval(profileCheckTimer);
-  profileCheckTimer = null;
   cloudAccount?.close();
   dashboard?.close();
   void engine?.shutdown();

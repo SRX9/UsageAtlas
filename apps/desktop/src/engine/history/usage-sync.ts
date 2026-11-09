@@ -18,12 +18,16 @@ export interface UsageCloud {
   save(records: PendingRecord[]): Promise<SaveResult[]>;
 }
 const AUTOMATIC_SAVE_INTERVAL_MS = 60 * 60 * 1_000;
+/** Snapshots alone save once a day, so an idle app does not wake the cloud database every hour. */
+const SNAPSHOT_SAVE_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 export class UsageSync {
   private progress: CloudProgress | null = null;
   private lastCompleted: "save" | "restore" | null = null;
   private running: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the queued save waits for usage (an hour) rather than snapshots alone (a day). */
+  private timerForUsage = false;
   private cloud: UsageCloud | null = null;
   private error: string | null = null;
   private closed = false;
@@ -219,6 +223,7 @@ export class UsageSync {
         }
       }
       this.lastCompleted = upload ? "save" : "restore";
+      if (upload) this.store.setSetting(`saved-at:${this.store.owner}`, String(Date.now()));
     })()
       .catch((error: unknown) => {
         if (this.closed || this.stopping) return;
@@ -236,13 +241,21 @@ export class UsageSync {
     return this.running;
   }
   private schedule(): void {
-    if (!this.automatic || !this.cloud || this.closed || this.stopping || this.timer || this.running) return;
+    if (!this.automatic || !this.cloud || this.closed || this.stopping || this.running) return;
+    if (this.timer && this.timerForUsage) return;
     const counts = this.store.counts();
     if (counts.pending <= counts.conflicts + counts.invalid) return;
+    // New usage saves within the hour and takes the waiting snapshots along.
+    const usage = counts.pending - this.store.statistics.pendingSnapshotCount() > counts.conflicts + counts.invalid;
+    if (this.timer && !usage) return;
+    // Snapshots count their day from the last save, so an app restarted daily still saves them.
+    const lastSave = Number(this.store.setting(`saved-at:${this.store.owner}`)) || 0;
+    this.clearTimer();
+    this.timerForUsage = usage;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.save().catch(() => undefined);
-    }, AUTOMATIC_SAVE_INTERVAL_MS);
+    }, usage ? AUTOMATIC_SAVE_INTERVAL_MS : Math.max(AUTOMATIC_SAVE_INTERVAL_MS, lastSave + SNAPSHOT_SAVE_INTERVAL_MS - Date.now()));
     this.timer.unref?.();
   }
   private clearTimer(): void {

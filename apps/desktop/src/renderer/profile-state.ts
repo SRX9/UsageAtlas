@@ -16,12 +16,29 @@ import {
 
 const IDLE_POLL_MS = 60_000;
 const SIGN_IN_POLL_MS = 3_000;
-const FOCUS_RECHECK_MS = 30_000;
+/** Each check reads the cloud database, so focus alone asks the website twice an hour at most. */
+const FOCUS_RECHECK_MS = 30 * 60_000;
+/** After the app opens the website, a publish may be waiting, so the next focus asks soon. */
+const WEBSITE_RECHECK_MS = 30_000;
+/** Opening the Profile page asks too, at most once a minute. */
+const PAGE_RECHECK_MS = 60_000;
 /** Let the usage page settle before anything covers it. */
 const PROMPT_DELAY_MS = 4_000;
 const PAGE_VISITED_KEY = "usageatlas.profilePageVisited";
 
 export type ProfileCloudAction = "sign-in" | "sign-out" | "refresh-profile";
+
+let websiteOpenedAt = Number.NEGATIVE_INFINITY;
+
+/** Notes a trip to the website, so the next focus checks the profile without the long wait. */
+export function markWebsiteOpened(now = Date.now()): void {
+  websiteOpenedAt = now;
+}
+
+/** Whether the window coming back should ask the website for the profile again. */
+export function focusRecheckDue(now: number, lastCheck: number, openedAt = websiteOpenedAt): boolean {
+  return now - lastCheck >= (openedAt > lastCheck ? WEBSITE_RECHECK_MS : FOCUS_RECHECK_MS);
+}
 
 export interface CloudAccountState {
   status: CloudStatus | null;
@@ -34,10 +51,10 @@ export interface CloudAccountState {
 
 /**
  * The account and profile state behind the profile page and prompt. It asks the website
- * again when the window regains focus, so a profile published in the browser shows up
- * as soon as the user comes back.
+ * again when the window regains focus or the Profile page opens, so a profile published
+ * in the browser shows up when the user comes back. Main checks when it opens a window.
  */
-export function useCloudAccount(): CloudAccountState {
+export function useCloudAccount(profileOpen = false): CloudAccountState {
   const [status, setStatus] = useState<CloudStatus | null>(null);
   const [pending, setPending] = useState<ProfileCloudAction | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,15 +90,25 @@ export function useCloudAccount(): CloudAccountState {
     if (previous === null && accountId) window.usageAtlas.cloudAction("refresh-profile").then(setStatus, () => undefined);
   }, [accountId]);
 
+  const check = useCallback(() => {
+    lastCheck.current = Date.now();
+    window.usageAtlas.cloudAction("refresh-profile").then(setStatus, () => undefined);
+  }, []);
+
   useEffect(() => {
+    // Main checked when it opened this window.
+    lastCheck.current = Date.now();
     const recheck = () => {
-      if (Date.now() - lastCheck.current < FOCUS_RECHECK_MS) return;
-      lastCheck.current = Date.now();
-      window.usageAtlas.cloudAction("refresh-profile").then(setStatus, () => undefined);
+      if (focusRecheckDue(Date.now(), lastCheck.current)) check();
     };
     window.addEventListener("focus", recheck);
     return () => window.removeEventListener("focus", recheck);
-  }, []);
+  }, [check]);
+
+  // Covers a publish from a browser the app did not open.
+  useEffect(() => {
+    if (profileOpen && Date.now() - lastCheck.current >= PAGE_RECHECK_MS) check();
+  }, [profileOpen, check]);
 
   const act = useCallback(async (action: ProfileCloudAction) => {
     setPending(action);
@@ -176,8 +203,9 @@ export function useProfilePrompt({ enabled, profile, snapshot, today }: {
     if (!enabled || prompt || !preview || !profile) return;
     if (!nextPrompt(readPromptState(new Date()), profile, preview, new Date())) return;
     // Main keeps the board for ten minutes, so the modal opens with its rank in place.
-    window.usageAtlas.getLeaderboard().catch(() => undefined);
-    return whenInFront(PROMPT_DELAY_MS, () => {
+    // Only a window in front fetches it: a hidden one would refetch on every usage refresh.
+    const stopPrefetch = whenInFront(0, () => void window.usageAtlas.getLeaderboard().catch(() => undefined));
+    const stopPrompt = whenInFront(PROMPT_DELAY_MS, () => {
       const now = new Date();
       const state = readPromptState(now);
       const trigger = nextPrompt(state, profile, preview, now);
@@ -186,6 +214,10 @@ export function useProfilePrompt({ enabled, profile, snapshot, today }: {
       setPrompt({ trigger, preview });
       trackGrowth("profile_prompt_shown", { trigger: trigger.kind, surface: "modal" });
     });
+    return () => {
+      stopPrefetch();
+      stopPrompt();
+    };
   }, [enabled, preview, profile, prompt]);
 
   return {

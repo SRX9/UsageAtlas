@@ -30,8 +30,8 @@ import { isSnapshotStale } from "./dashboard-model";
 import type { AnalyticsRange, ProviderScope } from "./personal-analytics";
 import { analyticsIssue, enabledProviders, todayDay } from "./personal-analytics";
 import { providerConnection, reconnectSentence } from "./provider-connection";
-import { wantsProfilePrompt } from "./profile-promotion";
-import { useCloudAccount, useLeaderboard, useProfilePageVisited, useProfilePrompt } from "./profile-state";
+import { PROFILE_SITE, wantsProfilePrompt } from "./profile-promotion";
+import { markWebsiteOpened, useCloudAccount, useLeaderboard, useProfilePageVisited, useProfilePrompt } from "./profile-state";
 import { useWrappedNudge } from "./wrapped-nudge";
 
 export function App(): React.JSX.Element {
@@ -58,7 +58,7 @@ export function App(): React.JSX.Element {
   const [trendRange, setTrendRange] = useState<AnalyticsRange>(30);
   const [providerScope, setProviderScope] = useState<ProviderScope>("all");
   const [recapOpen, setRecapOpen] = useState(false);
-  const cloud = useCloudAccount();
+  const cloud = useCloudAccount(route === "profile");
   const profileVisited = useProfilePageVisited(route);
 
   const loadDiagnostics = useCallback(async (): Promise<void> => {
@@ -393,6 +393,7 @@ export function App(): React.JSX.Element {
 }
 
 async function openExternal(url: string): Promise<void> {
+  if (url.startsWith(PROFILE_SITE)) markWebsiteOpened();
   await window.usageAtlas.openExternal(url);
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { growthToastShowing, markGrowthToast, whenInFront } from "./profile-state";
+import { focusRecheckDue, growthToastShowing, markGrowthToast, whenInFront } from "./profile-state";
 
 class FakeDocument extends EventTarget {
   front = true;
@@ -65,5 +65,19 @@ describe("whenInFront", () => {
     expect(growthToastShowing(12_000)).toBe(true);
     vi.advanceTimersByTime(1);
     expect(growthToastShowing(12_000)).toBe(false);
+  });
+});
+
+describe("focusRecheckDue", () => {
+  const MINUTE = 60_000;
+  it("asks the website at most twice an hour on focus alone", () => {
+    expect(focusRecheckDue(29 * MINUTE, 0, Number.NEGATIVE_INFINITY)).toBe(false);
+    expect(focusRecheckDue(30 * MINUTE, 0, Number.NEGATIVE_INFINITY)).toBe(true);
+  });
+  it("asks again soon after the app opened the website", () => {
+    expect(focusRecheckDue(29_999, 0, 1)).toBe(false);
+    expect(focusRecheckDue(30_000, 0, 1)).toBe(true);
+    // A trip to the website before the last check does not count again.
+    expect(focusRecheckDue(MINUTE, 10_000, 5_000)).toBe(false);
   });
 });

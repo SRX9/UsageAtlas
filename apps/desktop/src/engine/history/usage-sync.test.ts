@@ -220,6 +220,72 @@ describe("usage cloud storage", () => {
     await service.configure("a", cloud);
     expect(service.status().automatic).toBe(true);
   });
+  it("saves capacity snapshots alone once a day, and with new usage within the hour", async () => {
+    vi.useFakeTimers();
+    const local = store();
+    const cloud = remoteCloud();
+    const savedFacts: string[] = [];
+    Object.assign(cloud, {
+      async readFacts() { return { facts: [], cursor: "0", more: false }; },
+      async saveFacts(facts: { id: string }[]) { savedFacts.push(...facts.map((fact) => fact.id)); return facts.map((fact) => fact.id); }
+    });
+    const service = sync(local);
+    await service.configure("a", cloud);
+    await service.save();
+    const live = { source: "oauth", updatedAt: new Date().toISOString(), analytics: null, identity: { plan: "pro" },
+      windows: [{ kind: "weekly", label: "Weekly", usedPercent: 10, remainingPercent: 90 }], credits: null };
+    local.statistics.capacity("codex", "local", "replica", live);
+    local.onChange?.();
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(savedFacts).toHaveLength(0);
+    local.put(day());
+    local.onChange?.();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(cloud.saves).toBe(1);
+    expect(savedFacts).toHaveLength(1);
+    local.statistics.capacity("codex", "local", "replica", { ...live, updatedAt: new Date().toISOString() });
+    local.onChange?.();
+    await vi.advanceTimersByTimeAsync(24 * HOUR - 1);
+    expect(savedFacts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(savedFacts).toHaveLength(2);
+    expect(cloud.saves).toBe(1);
+  });
+  it("counts the daily snapshot save from the last save, not from each launch", async () => {
+    vi.useFakeTimers();
+    const local = store();
+    const cloud = remoteCloud();
+    const savedFacts: string[] = [];
+    Object.assign(cloud, {
+      async readFacts() { return { facts: [], cursor: "0", more: false }; },
+      async saveFacts(facts: { id: string }[]) { savedFacts.push(...facts.map((fact) => fact.id)); return facts.map((fact) => fact.id); }
+    });
+    const first = sync(local);
+    await first.configure("a", cloud);
+    await first.save();
+    await vi.advanceTimersByTimeAsync(20 * HOUR);
+    first.close();
+    local.statistics.capacity("codex", "local", "replica", { source: "oauth", updatedAt: new Date().toISOString(), analytics: null,
+      identity: { plan: "pro" }, windows: [{ kind: "weekly", label: "Weekly", usedPercent: 10, remainingPercent: 90 }], credits: null });
+    // The app starts again 20 hours after the last save.
+    const second = sync(local);
+    await second.configure("a", cloud);
+    await vi.advanceTimersByTimeAsync(4 * HOUR - 1);
+    expect(savedFacts).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(savedFacts).toHaveLength(1);
+    // Never sooner than an hour after launch, however long ago the last save was.
+    second.close();
+    local.statistics.capacity("codex", "local", "replica", { source: "oauth", updatedAt: new Date(Date.now() + 1).toISOString(), analytics: null,
+      identity: { plan: "pro" }, windows: [{ kind: "weekly", label: "Weekly", usedPercent: 20, remainingPercent: 80 }], credits: null });
+    await vi.advanceTimersByTimeAsync(30 * HOUR);
+    const third = sync(local);
+    await third.configure("a", cloud);
+    await vi.advanceTimersByTimeAsync(HOUR - 1);
+    expect(savedFacts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(savedFacts).toHaveLength(2);
+  });
   it("cancels a queued automatic save when the switch is turned off", async () => {
     vi.useFakeTimers();
     const local = store();

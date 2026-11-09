@@ -151,6 +151,10 @@ export class StatisticsStore {
   pendingCount(): number {
     return Number(this.db.get("SELECT COUNT(*) AS count FROM usage_fact WHERE owner IN (?, '') AND saved = 0", [this.owner()])?.count ?? 0);
   }
+  /** Pending capacity and collection snapshots. Each provider refresh adds one, with or without new usage. */
+  pendingSnapshotCount(): number {
+    return Number(this.db.get("SELECT COUNT(*) AS count FROM usage_fact WHERE owner IN (?, '') AND saved = 0 AND kind <> 'usage_event'", [this.owner()])?.count ?? 0);
+  }
   /** Deletes pending events that repeat their previous version apart from the pricing catalog revision. */
   async dropRepricedCopies(stopped: () => boolean): Promise<void> {
     const owner = this.owner();
