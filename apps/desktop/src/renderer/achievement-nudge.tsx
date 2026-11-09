@@ -11,7 +11,7 @@ import {
   seenAchievements,
   type AchievementProgress
 } from "./achievements";
-import { AchievementIcon } from "./components/Achievements";
+import { AchievementBadge } from "./components/AchievementBadge";
 import { growthToastShowing, markGrowthToast, trackGrowth, whenInFront } from "./profile-state";
 
 /** Later than the profile prompt's delay, so a due prompt always goes first. */
@@ -59,7 +59,7 @@ export function useAchievementNudge({ automatic, enabled, onOpen, profile, promp
       const properties = { kind: nudge.kind, achievement: nudge.id };
       const key = toast(title, {
         description,
-        indicator: <AchievementIcon height={18} id={nudge.id} width={18} />,
+        indicator: <AchievementBadge height={24} id={nudge.id} level={nudge.level} width={24} />,
         actionProps: {
           children: "See achievements",
           onPress: () => {

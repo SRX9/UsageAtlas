@@ -165,32 +165,6 @@ export function ProfileIcon(props: IconProps): React.JSX.Element {
   );
 }
 
-export function ZapIcon(props: IconProps): React.JSX.Element {
-  return <IconBase {...props}><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></IconBase>;
-}
-
-export function FlameIcon(props: IconProps): React.JSX.Element {
-  return <IconBase {...props}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></IconBase>;
-}
-
-export function CalendarCheckIcon(props: IconProps): React.JSX.Element {
-  return <IconBase {...props}><rect height="18" rx="2" width="18" x="3" y="4" /><path d="M8 2v4m8-4v4M3 10h18m-12 6 2 2 4-4" /></IconBase>;
-}
-
-export function RocketIcon(props: IconProps): React.JSX.Element {
-  return (
-    <IconBase {...props}>
-      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0m1 7v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-    </IconBase>
-  );
-}
-
-export function WrenchIcon(props: IconProps): React.JSX.Element {
-  return <IconBase {...props}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></IconBase>;
-}
-
 export function GiftIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

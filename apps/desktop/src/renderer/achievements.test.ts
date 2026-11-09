@@ -136,7 +136,7 @@ describe("achievement nudges", () => {
     const earned = progress({ tokens: [2, "2026-07-10"], streak: [1, "2026-07-12"], tools: [1, "2026-06-01"] });
 
     expect(nextAchievementNudge(null, progress({}))).toBeNull();
-    expect(nextAchievementNudge(null, earned)).toEqual({ kind: "intro", id: "streak", count: 3 });
+    expect(nextAchievementNudge(null, earned)).toEqual({ kind: "intro", id: "streak", level: 1, count: 3 });
     expect(nextAchievementNudge({ tokens: 2, streak: 1, tools: 1 }, earned)).toBeNull();
     expect(nextAchievementNudge({ tokens: 1, streak: 1, tools: 1 }, earned)).toEqual({ kind: "unlock", id: "tokens", level: 2 });
     expect(nextAchievementNudge({ tokens: 1, tools: 1 }, earned)).toEqual({ kind: "unlock", id: "streak", level: 1 });
@@ -149,10 +149,10 @@ describe("achievement nudges", () => {
     expect(achievementNudgeCopy(unlock, cloud("private")).description).toBe("Show it on a public profile.");
     expect(achievementNudgeCopy(unlock, cloud("public")).description).toBe("It's on your public profile too.");
     expect(achievementNudgeCopy(unlock, cloud("public", false)).description).toBe("Turn on cloud save to show them on your profile.");
-    expect(achievementNudgeCopy({ kind: "intro", id: "streak", count: 3 }, cloud("missing")))
+    expect(achievementNudgeCopy({ kind: "intro", id: "streak", level: 1, count: 3 }, cloud("missing")))
       .toEqual({ title: "You've earned 3 achievements", description: "A public profile shows them off." });
-    expect(achievementNudgeCopy({ kind: "intro", id: "streak", count: 3 }, cloud("public")).description).toBe("They're on your public profile too.");
-    expect(achievementNudgeCopy({ kind: "intro", id: "streak", count: 1 }, cloud("public")))
+    expect(achievementNudgeCopy({ kind: "intro", id: "streak", level: 1, count: 3 }, cloud("public")).description).toBe("They're on your public profile too.");
+    expect(achievementNudgeCopy({ kind: "intro", id: "streak", level: 1, count: 1 }, cloud("public")))
       .toEqual({ title: "You've earned an achievement", description: "It's on your public profile too." });
   });
 });

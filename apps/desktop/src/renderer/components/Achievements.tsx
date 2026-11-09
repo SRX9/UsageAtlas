@@ -1,26 +1,8 @@
-import type { CSSProperties, SVGProps } from "react";
-import {
-  achievementFamily,
-  nextTierShare,
-  nextTierText,
-  type AchievementId,
-  type AchievementProgress
-} from "../achievements";
-import { CalendarCheckIcon, FlameIcon, RocketIcon, WrenchIcon, ZapIcon } from "../icons";
+import type { CSSProperties } from "react";
+import { achievementFamily, nextTierShare, nextTierText, type AchievementProgress } from "../achievements";
+import { AchievementBadge } from "./AchievementBadge";
 
-const ICONS: Record<AchievementId, (props: SVGProps<SVGSVGElement>) => React.JSX.Element> = {
-  tokens: ZapIcon,
-  streak: FlameIcon,
-  "active-days": CalendarCheckIcon,
-  "big-day": RocketIcon,
-  tools: WrenchIcon
-};
 const EARNED_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-
-export function AchievementIcon({ id, ...props }: { id: AchievementId } & SVGProps<SVGSVGElement>): React.JSX.Element {
-  const Icon = ICONS[id];
-  return <Icon {...props} />;
-}
 
 /** Every family on the Profile page: the tier reached and how far the next one is. */
 export function ProfileAchievements({ live, progress }: {
@@ -50,7 +32,7 @@ export function ProfileAchievements({ live, progress }: {
           return (
             <li className="atlas-achievement" data-earned={item.level > 0 || undefined} key={item.id}>
               <div className="atlas-achievement__top">
-                <span className="atlas-achievement__icon"><AchievementIcon height={18} id={item.id} width={18} /></span>
+                <AchievementBadge className="atlas-achievement__badge" id={item.id} level={item.level} />
                 <span aria-hidden="true" className="atlas-achievement__pips">
                   {family.tiers.map((_, index) => <span data-on={index < item.level || undefined} key={index} />)}
                 </span>

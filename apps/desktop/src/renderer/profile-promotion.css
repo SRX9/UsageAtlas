@@ -714,19 +714,15 @@
   margin-block-end: 8px;
 }
 
-.atlas-achievement__icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--surface-tertiary);
-  color: var(--muted);
+.atlas-achievement__badge {
+  width: 52px;
+  height: 52px;
+  flex: none;
 }
 
-.atlas-achievement[data-earned] .atlas-achievement__icon {
-  background: color-mix(in oklch, var(--atlas-heat) 18%, transparent);
-  color: color-mix(in oklch, var(--atlas-heat) 70%, var(--foreground));
+.atlas-achievement:not([data-earned]) .atlas-achievement__badge {
+  filter: grayscale(1);
+  opacity: 0.45;
 }
 
 .atlas-achievement__pips {

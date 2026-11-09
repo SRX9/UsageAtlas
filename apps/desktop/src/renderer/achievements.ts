@@ -151,9 +151,9 @@ export function seenAchievements(progress: readonly AchievementProgress[], previ
   return seen;
 }
 
-/** `id` is the newest tier's family. */
+/** `id` and `level` are the newest tier's. */
 export type AchievementNudge =
-  | { kind: "intro"; id: AchievementId; count: number }
+  | { kind: "intro"; id: AchievementId; level: number; count: number }
   | { kind: "unlock"; id: AchievementId; level: number };
 
 const newest = (items: AchievementProgress[]) => items.reduce((latest, item) => item.earnedOn > latest.earnedOn ? item : latest);
@@ -162,7 +162,10 @@ const newest = (items: AchievementProgress[]) => items.reduce((latest, item) => 
 export function nextAchievementNudge(seen: SeenAchievements | null, progress: readonly AchievementProgress[]): AchievementNudge | null {
   const earned = progress.filter((item) => item.level > 0);
   if (!earned.length) return null;
-  if (seen === null) return { kind: "intro", id: newest(earned).id, count: earned.length };
+  if (seen === null) {
+    const { id, level } = newest(earned);
+    return { kind: "intro", id, level, count: earned.length };
+  }
   const fresh = earned.filter((item) => item.level > (seen[item.id] ?? 0));
   if (!fresh.length) return null;
   const { id, level } = newest(fresh);
