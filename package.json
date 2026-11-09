@@ -42,6 +42,7 @@
   ],
   "overrides": {
     "brace-expansion": "5.0.11",
+    "decode-uri-component": "0.5.1",
     "fast-uri": "3.1.7",
     "postcss": "8.5.31",
     "sharp": "0.35.3",
