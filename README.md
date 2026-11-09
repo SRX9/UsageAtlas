@@ -21,6 +21,16 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
+<p align="center">
+  <sub>Sponsored by</sub><br>
+  <a href="https://neon.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/sponsors/neon-logo-dark-color.svg">
+      <img src="docs/images/sponsors/neon-logo-light-color.svg" width="110" alt="Neon">
+    </picture>
+  </a>
+</p>
+
 Use UsageAtlas without an account to track usage on your computer. If you want to keep a copy of your usage history
 and restore it after changing or losing a computer, you can create a free account and use cloud save.
 
