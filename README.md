@@ -22,11 +22,11 @@
 </p>
 
 <p align="center">
-  <sub>Sponsored by</sub><br>
+  <sub>Sponsored by</sub><br></br>
   <a href="https://neon.com">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/sponsors/neon-logo-dark-color.svg">
-      <img src="docs/images/sponsors/neon-logo-light-color.svg" width="110" alt="Neon">
+      <img src="docs/images/sponsors/neon-logo-light-color.svg" width="150" alt="Neon">
     </picture>
   </a>
 </p>
