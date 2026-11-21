@@ -8,8 +8,13 @@ import { emptyPricingCatalog, type PricingCatalog } from "./models-dev";
 import { normalizeClaudeModel, normalizeCodexModel } from "./pricing";
 import { aliases, counter, discoverSessions, estimateSessionCost, localRecord, object,
   SessionFileCache, sessionAnalytics, sum, text, timestamp, type SessionRoot, type SessionSourceOptions } from "./session-source";
+import { resolveScanHomes } from "../platform/wsl";
 
 export type JsonSessionProvider = "pi" | "muse";
+
+function pinnedSessionDir(provider: JsonSessionProvider, environment: NodeJS.ProcessEnv): boolean {
+  return provider === "muse" ? text(environment.MUSE_SESSIONS_DIR) !== null : text(environment.PI_CODING_AGENT_SESSION_DIR) !== null;
+}
 
 export class JsonSessionUsageScanner {
   private readonly environment: NodeJS.ProcessEnv;
@@ -20,7 +25,25 @@ export class JsonSessionUsageScanner {
     this.environment = options.environment ?? process.env;
     this.home = options.homeDirectory ?? homedir();
   }
-  private roots(): Promise<SessionRoot[]> { return sessionRoots(this.provider, this.environment, this.home); }
+  private async roots(): Promise<SessionRoot[]> {
+    // A pinned session directory names one exact scope; keep the single-home
+    // behavior (including its validation errors) instead of fanning out.
+    if (pinnedSessionDir(this.provider, this.environment)) {
+      return sessionRoots(this.provider, this.environment, this.home);
+    }
+    const homes = await resolveScanHomes(this.home, { environment: this.environment });
+    const settled = await Promise.all(homes.map(async (home) => {
+      try { return { roots: await sessionRoots(this.provider, this.environment, home), error: null as unknown }; }
+      catch (error) { return { roots: [] as SessionRoot[], error }; }
+    }));
+    const roots = [...new Map(settled.flatMap((entry) => entry.roots)
+      .map((root) => [root.path, root] as const)).values()];
+    if (roots.length === 0) {
+      const failure = settled.map((entry) => entry.error).find((error) => error !== null && error !== undefined);
+      if (failure !== null && failure !== undefined) throw failure;
+    }
+    return roots;
+  }
   async isAvailable(): Promise<boolean> {
     try {
       const discovery = await discoverSessions(await this.roots(), name => this.accepts(name), new AbortController().signal, 1);

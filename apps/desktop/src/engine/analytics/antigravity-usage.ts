@@ -6,6 +6,7 @@ import type { AnalyticsScanContext } from "./local-usage";
 import { emptyPricingCatalog } from "./models-dev";
 import type { AntigravityDatabaseResult } from "./antigravity-database";
 import { discoverSessions, estimateSessionCost, sessionAnalytics, text, type SessionRoot, type SessionSourceOptions } from "./session-source";
+import { resolveScanHomes } from "../platform/wsl";
 
 export interface AntigravitySourceOptions extends SessionSourceOptions { workerPath?: string; }
 
@@ -18,20 +19,28 @@ export function antigravityRoots(options: SessionSourceOptions = {}): SessionRoo
     .map(directory => ({ path: directory, depth: 0 }));
 }
 
+/** The Windows home plus every readable WSL home, reusing the per-home roots. */
+async function scanRoots(options: AntigravitySourceOptions): Promise<SessionRoot[]> {
+  const environment = options.environment ?? process.env;
+  const homes = await resolveScanHomes(options.homeDirectory ?? homedir(), { environment });
+  return [...new Map(homes.flatMap((home) => antigravityRoots({ ...options, homeDirectory: home }))
+    .map((root) => [root.path, root] as const)).values()];
+}
+
 export class AntigravityUsageScanner {
   private nextFile: string | null = null;
   private recentFirst = true;
   constructor(private readonly options: AntigravitySourceOptions = {}) {}
   async isAvailable(): Promise<boolean> {
     try {
-      const found = await discoverSessions(antigravityRoots(this.options), name => name.endsWith(".db"), new AbortController().signal, 1);
+      const found = await discoverSessions(await scanRoots(this.options), name => name.endsWith(".db"), new AbortController().signal, 1);
       return found.files.length > 0 || found.partial;
     } catch { return true; }
   }
   async scan(context: AnalyticsScanContext): Promise<LocalUsageAnalytics> {
     context.signal.throwIfAborted();
     let roots: SessionRoot[];
-    try { roots = antigravityRoots(this.options); } catch { return sessionAnalytics({ records: [], partial: true }, 0, context); }
+    try { roots = await scanRoots(this.options); } catch { return sessionAnalytics({ records: [], partial: true }, 0, context); }
     const found = await discoverSessions(roots, name => name.endsWith(".db"), context.signal, 50_000);
     const candidates = found.files.sort();
     const positions = new Map(candidates.map((file, index) => [file, index]));
