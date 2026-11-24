@@ -63,15 +63,18 @@ export interface AntigravityTurn {
   systemPrompt: number; newInput: number;
   model: string | null; label: string | null; responseID: string | null;
   stepID: string | null; botID: string | null; timestamp: string | null;
+  failed: boolean;
 }
 export function decodeAntigravityTurn(bytes: Uint8Array): AntigravityTurn {
   const turn: AntigravityTurn = { input: 0, cacheRead: 0, output: 0, reasoning: 0, systemPrompt: 0, newInput: 0,
-    model: null, label: null, responseID: null, stepID: null, botID: null, timestamp: null };
+    model: null, label: null, responseID: null, stepID: null, botID: null, timestamp: null, failed: false };
   const time: ProtoTime = {};
-  let foundUsage = false, invalidBot = false;
+  let foundChat = false, foundUsage = false, invalidBot = false, failed = false;
   for (const root of fields(bytes)) {
     if (root.number === 4) turn.stepID = string(root);
+    if (root.number === 5 && string(root) !== null) failed = true;
     if (root.number !== 1) continue;
+    foundChat = true;
     for (const chat of fields(message(root))) {
       if (chat.number === 19) turn.model = string(chat);
       if (chat.number === 21) turn.label = string(chat);
@@ -95,10 +98,11 @@ export function decodeAntigravityTurn(bytes: Uint8Array): AntigravityTurn {
       }
     }
   }
-  if (!foundUsage) throw new Error("No generation usage envelope.");
+  if (!foundUsage && !(foundChat && failed)) throw new Error("No generation usage envelope.");
   if (invalidBot) turn.botID = null;
   turn.input = sum(turn.systemPrompt, turn.newInput);
   turn.timestamp = isoTime(time);
+  turn.failed = failed;
   return turn;
 }
 
