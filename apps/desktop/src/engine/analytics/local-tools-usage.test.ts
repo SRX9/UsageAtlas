@@ -188,6 +188,47 @@ describe("Antigravity history", () => {
     const limited = new AntigravityUsageScanner({ workerPath, homeDirectory: dir, environment: {}, maxBytes: 1 });
     expect((await limited.scan(context())).status).toBe("unavailable");
   });
+  it("ignores failed pre-response attempts without leaking errors while keeping partial-response failures incomplete", async () => {
+    const dir = await home();
+    const step = Buffer.concat([pb(12, "step-1"), pb(9, pb(7, "bot-1")), pb(1, pb(1, now.valueOf() / 1000))]);
+    const valid = turn({ time: false, step: "step-1", bot: "bot-1" });
+    const canceledWithSystemOnly = Buffer.concat([pb(1, pb(4, pb(1, 1530))), pb(4, "step-1"), pb(5, "request failed: context canceled by user")]);
+    const canceledWithoutUsage = Buffer.concat([pb(1, pb(21, "Gemini Test")), pb(4, "step-1"), pb(5, "request failed: aborted before stream")]);
+    await database(dir, [valid, canceledWithSystemOnly, canceledWithoutUsage], [step]);
+    const a = await new AntigravityUsageScanner({ workerPath, homeDirectory: dir, environment: {} }).scan(context());
+    expect(a.status).toBe("available"); expect(a.totals.requests).toBe(1); expect(a.totals.totalTokens).toBe(198);
+    expect(JSON.stringify(a)).not.toContain("request failed"); expect(JSON.stringify(a)).not.toContain("context canceled");
+
+    const interruptedDir = await home();
+    const interruptedWithOutput = Buffer.concat([turn({ time: false }), pb(5, "request failed: stream interrupted")]);
+    await database(interruptedDir, [valid, interruptedWithOutput], [step]);
+    const partial = await new AntigravityUsageScanner({ workerPath, homeDirectory: interruptedDir, environment: {} }).scan(context());
+    expect(partial.status).toBe("partial"); expect(partial.totals.requests).toBe(1);
+
+    const missingChatDir = await home();
+    await database(missingChatDir, [literalTurn, pb(5, "request failed: missing chat envelope")]);
+    expect((await new AntigravityUsageScanner({ workerPath, homeDirectory: missingChatDir, environment: {} }).scan(context())).status).toBe("partial");
+  });
+  it("strips compound routing and effort suffixes for pricing while preserving recorded Antigravity models", async () => {
+    const dir = await home();
+    await database(dir, [
+      turn({ response: "r1", model: "gemini-test-tiered-high" }),
+      turn({ response: "r2", model: "gemini-test-tiered-low" }),
+      turn({ response: "r3", model: "gemini-exact-high" })
+    ]);
+    const catalog = pricingCatalogFromRates({
+      google: {
+        "gemini-test": { input: 1e-6, output: 2e-6, cacheRead: 0.2e-6 },
+        "gemini-exact-high": { input: 4e-6, output: 8e-6, cacheRead: 0.5e-6 }
+      }
+    });
+    const a = await new AntigravityUsageScanner({ workerPath, homeDirectory: dir, environment: {}, pricingCatalogLoader: async () => catalog }).scan(context());
+    expect(a.status).toBe("available"); expect(a.totals.requests).toBe(3); expect(a.totals.unpricedTokens).toBe(0);
+    expect(a.totals.estimatedCostUSD).toBeCloseTo(0.001155);
+    expect(a.collection?.events.map(event => event.model).sort()).toEqual([
+      "gemini-exact-high", "gemini-test-tiered-high", "gemini-test-tiered-low"
+    ]);
+  });
 });
 
 describe("new providers through unified storage", () => {

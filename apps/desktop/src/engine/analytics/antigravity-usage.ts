@@ -63,10 +63,10 @@ export class AntigravityUsageScanner {
     const catalog = parsed.records.length && this.options.pricingCatalogLoader
       ? await this.options.pricingCatalogLoader(context).catch(() => emptyPricingCatalog()) : emptyPricingCatalog();
     for (const record of parsed.records) {
-      // Preserve the recorded model; routing suffix aliases are used for pricing only.
-      const pricingModel = record.model.replace(/-(?:tiered|low|thinking)$/i, "");
+      // Preserve the recorded model; routing and effort suffix aliases are used for pricing only.
+      const pricingModel = record.model.replace(/(?:-(?:tiered|thinking|minimal|low|medium|high|xhigh))+$/i, "");
       record.estimatedCostUSD = estimateSessionCost(record, catalog)
-        ?? estimateSessionCost({ ...record, model: pricingModel }, catalog);
+        ?? (pricingModel && pricingModel !== record.model ? estimateSessionCost({ ...record, model: pricingModel }, catalog) : null);
       record.pricingVersion = catalog.revision;
     }
     context.signal.throwIfAborted();

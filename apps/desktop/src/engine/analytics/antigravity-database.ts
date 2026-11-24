@@ -67,7 +67,7 @@ function readDatabase(filename: string, budget: Budget): DatabaseSession | null 
     // conversation_summaries.db shares a root but carries no generation history.
     if (!hasTable("gen_metadata", "data")) return null;
     const session = path.basename(filename, ".db");
-    const turns: { index: number; turn: AntigravityTurn }[] = [], steps: { index: number; step: AntigravityStep }[] = [];
+    const rawTurns: { index: number; turn: AntigravityTurn }[] = [], steps: { index: number; step: AntigravityStep }[] = [];
     const scan = (table: "gen_metadata" | "steps", column: "data" | "metadata", visit: (index: number, data: Uint8Array) => void): void => {
       // Bound each materialized BLOB before SQLite returns it. Iteration holds one row at a time.
       const query = db.prepare(`SELECT idx, length(${column}) AS bytes,
@@ -86,7 +86,14 @@ function readDatabase(filename: string, budget: Budget): DatabaseSession | null 
         } catch { result.partial = true; }
       }
     };
-    scan("gen_metadata", "data", (index, data) => turns.push({ index, turn: decodeAntigravityTurn(data) }));
+    scan("gen_metadata", "data", (index, data) => rawTurns.push({ index, turn: decodeAntigravityTurn(data) }));
+    const indices = new Set<number>();
+    const turns: { index: number; turn: AntigravityTurn }[] = [];
+    for (const entry of rawTurns) {
+      if (indices.has(entry.index)) throw new Error("Duplicate generation index.");
+      indices.add(entry.index);
+      if (!isFailedAttemptWithoutResponse(entry.turn)) turns.push(entry);
+    }
     if (turns.some(row => !row.turn.timestamp) && hasTable("steps", "metadata")) {
       scan("steps", "metadata", (index, data) => steps.push({ index, step: decodeAntigravityStep(data) }));
     }
@@ -96,10 +103,7 @@ function readDatabase(filename: string, budget: Budget): DatabaseSession | null 
     for (const { turn } of turns) if (turn.label && turn.model) {
       const labels = models.get(turn.label) ?? new Set<string>(); labels.add(turn.model); models.set(turn.label, labels);
     }
-    const indices = new Set<number>();
     for (const { index, turn } of turns) {
-      if (indices.has(index)) throw new Error("Duplicate generation index.");
-      indices.add(index);
       if (!turn.timestamp) { result.partial = true; continue; }
       const candidates = turn.label ? models.get(turn.label) : null;
       const model = turn.model ?? (candidates?.size === 1 ? [...candidates][0] : "unknown");
@@ -114,6 +118,16 @@ function readDatabase(filename: string, budget: Budget): DatabaseSession | null 
     }
     return result;
   } finally { db.close(); }
+}
+
+function isFailedAttemptWithoutResponse(turn: AntigravityTurn): boolean {
+  return turn.failed
+    && !turn.botID
+    && !turn.responseID
+    && turn.newInput === 0
+    && turn.cacheRead === 0
+    && turn.output === 0
+    && turn.reasoning === 0;
 }
 
 /** Recover only timestamps linked to the generation, never file mtime or session start. */
